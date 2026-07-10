@@ -157,6 +157,7 @@ the phase noted; rejected items are deleted from the phase docs before that phas
 | 6 | Savings-deals research feature + Warikan splits (if S3 accepted) | Sonnet | [PHASE-6](phases/PHASE-6-deals-splits.md) |
 | 7 | Dashboard UI: charts, stat tiles, goal visuals, polish per DESIGN.md | **Fable** | [PHASE-7](phases/PHASE-7-dashboard.md) |
 | 8 | End-to-end verification against every doc's acceptance list, deploy (Pages + LaunchAgents + tunnel), push | Fable | [PHASE-8](phases/PHASE-8-verify-ship.md) |
+| 9 | Net worth (S1), emergency fund check (S2), contractor gap card (S4), occasion gift budgets (goal 10), personal wants + affordability check (goal 11) — accepted late, added after the original 8 shipped | Sonnet | [PHASE-9](phases/PHASE-9-personal-goals.md) |
 
 Sequencing: 1 → 2 → 3 (2 and 3 could parallelise, but 3's snapshot table reuses 2's sync
 scaffolding — sequential is safer) → 4 and 5 in parallel (independent engines over the
