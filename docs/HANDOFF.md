@@ -59,10 +59,12 @@ inferred. Answers go in [PRIVATE.md](PRIVATE.md), not here.
 
 **Tax-critical (gate Phase 5's real output; the pipeline itself builds regardless):**
 
-- [ ] **Q1. Is there a mortgage on the rented-out house?** If yes: lender, interest-only
-  or repayment, and the annual mortgage-interest figure (lender's certificate — the
-  Gmail pipeline will hunt for it, but the number unblocks estimates immediately).
-  Single biggest lever in the whole tax computation (TAX.md §5b).
+- [x] **Q1. Mortgage on the rented-out house — answered 2026-07-10: yes, mortgaged**
+  (real figures in PRIVATE.md). **Still open:** the interest-only portion for the
+  Section 24 calc (TAX.md §5b) — a real monthly/total payment figure alone isn't enough,
+  need the interest split from a certificate/statement (the Gmail pipeline should hunt
+  for it) — and whether it's interest-only or repayment. Still the single biggest lever
+  in the tax computation; not fully unblocked yet.
 - [ ] **Q2. Already registered for Self Assessment / have a UTR?** If not: **the
   registration deadline for 2025-26 is 5 October 2026** — under three months away.
   This is the one thing in this project with a statutory clock; consider doing it
@@ -73,35 +75,36 @@ inferred. Answers go in [PRIVATE.md](PRIVATE.md), not here.
   accountant emails, and rent-received notices, and cross-reference against what the
   user confirms was actually declared, in which tax year. Don't assume either way until
   both checks land — get this one right, it's the statutory-deadline question.
-- [ ] **Q3. Letting arrangement:** agent or self-managed? Agent name + fee %, the
-  email address their statements come from, rent amount and payment day (configures
-  both the Gmail query and the income detection).
-- [ ] **Q4. Is the rented house leasehold** (ground rent / factor fees — common in
-  Scotland as residual factoring even on freehold-equivalent)? Any landlord
-  insurance policy, and where do its documents arrive?
+- [x] **Q3. Letting arrangement — answered 2026-07-10: uses a letting agent**, whose
+  monthly statement is the primary Gmail search target for both income detection and
+  the agent's fee (an allowable expense) — real name/fee/email in PRIVATE.md.
+- [x] **Q4. Leasehold/factoring — answered 2026-07-10, mostly.** Landlord insurance:
+  yes, held. No factor fees or ground rent believed — flagged by the user himself as
+  not fully certain, so the Gmail pipeline should still cross-check this rather than
+  treat it as settled.
 
 **Safe-to-spend inputs (gate Phase 4's headline number):**
 
-- [x] **Q5. Employment mechanics — partially answered 2026-07-10:** PAYE via the
+- [x] **Q5. Employment mechanics — mostly answered 2026-07-10:** PAYE via the
   consultancy (umbrella-style), confirmed **not** a Ltd company arrangement, so no scope
-  change needed. Still open: net monthly take-home + payday day-of-month + gross annual
-  (the gross places rental profit in the right Scottish band, TAX.md §2) — real figures
-  in PRIVATE.md as they land.
-- [ ] **Q6. The flat:** what does he actually pay monthly (rent to his partner's family
-  member who owns it? bills split?) — the fixed-commitments anchor.
+  change needed. **Gross annual now known** (places rental profit in the right Scottish
+  band, TAX.md §2). Still open: net monthly take-home, payday day-of-month.
+- [x] **Q6. The flat — answered 2026-07-10.** No rent paid; a fixed monthly utilities
+  contribution to his partner is the real fixed-commitments anchor (figure in
+  PRIVATE.md).
 
 **Accounts & integrations:**
 
-- [ ] **Q7. Confirm banking:** is Starling the sole/main current account? Any other
-  accounts that matter (old bank, joint anything, cash ISA elsewhere)? Manual-account
-  entries cover stragglers, but knowing the map avoids mis-reading spending.
+- [x] **Q7. Confirm banking — answered 2026-07-10.** Starling is the main account; a
+  couple of other accounts exist but see little/rare use — real detail in PRIVATE.md.
+  Cover via manual account entries if their balances matter enough to include.
 - [x] **Q8. Which Trading 212 product — answered 2026-07-10: Stocks ISA**, covered by
   the public API (no manual-balance fallback needed). Related product note (real detail
   in PRIVATE.md, generically: the user wants to move this pot toward a lower-risk
   vehicle given the goal's short time horizon) — a future tips-engine candidate, not
   built yet.
-- [ ] **Q9. Which Gmail address** receives the rental paperwork, and is he comfortable
-  with the one-time Google Cloud OAuth setup (API.md §3b) on the household Mac?
+- [x] **Q9. Gmail address — answered 2026-07-10.** Address confirmed (PRIVATE.md), OK'd
+  for the one-time Google Cloud OAuth setup (API.md §3b) on the household Mac.
 
 **Product/scope:**
 
