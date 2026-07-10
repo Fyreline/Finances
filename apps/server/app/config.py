@@ -7,6 +7,7 @@ secret and settings are entirely independent of Mishka Hub's and Michi's own
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,10 +20,21 @@ SERVER_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data"
 
+# Tests must never read the developer's real .env — conftest.py sets
+# KAKEIBO_ENVIRONMENT=test via os.environ BEFORE importing anything from
+# `app` (see its module docstring), so this check runs before Settings is
+# ever instantiated. Bug this fixes: once real Starling/T212/Gmail
+# credentials exist in apps/server/.env, every test run was silently
+# picking them up (pydantic-settings layers env_file under explicit
+# os.environ vars), flipping `not_configured` fixtures to `ok` and breaking
+# hermeticity — conftest.py only ever overrode a handful of specific vars,
+# so this needed a env_file-level fix, not another os.environ.setdefault.
+_IS_TEST = os.environ.get("KAKEIBO_ENVIRONMENT") == "test"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(SERVER_DIR / ".env"),
+        env_file=None if _IS_TEST else str(SERVER_DIR / ".env"),
         env_prefix="KAKEIBO_",
         extra="ignore",
     )
@@ -118,9 +130,30 @@ class Settings(BaseSettings):
     def t212_configured(self) -> bool:
         return bool(self.t212_api_key and self.t212_api_secret)
 
+    def _resolve(self, raw: str) -> Path:
+        """Relative gmail paths must resolve against PROJECT_ROOT, not the
+        process's CWD (docs/ARCHITECTURE.md's DATA_DIR convention, already
+        followed by database_url) — a plain ``Path(raw)`` here previously
+        went stale-cwd-dependent: correct when run the documented way (cwd=
+        apps/server), silently wrong for anything else, and it broke pytest
+        isolation the moment a real token file existed on disk (found
+        2026-07-11 testing real credentials — pytest's cwd happened to also
+        be apps/server, so a real gmail-token.json was "discovered" even
+        with env_file blocked in tests)."""
+        p = Path(raw)
+        return p if p.is_absolute() else PROJECT_ROOT / p
+
+    @property
+    def resolved_gmail_credentials_path(self) -> Path:
+        return self._resolve(self.gmail_credentials_path)
+
+    @property
+    def resolved_gmail_token_path(self) -> Path:
+        return self._resolve(self.gmail_token_path)
+
     @property
     def gmail_configured(self) -> bool:
-        return Path(self.gmail_token_path).exists()
+        return self.resolved_gmail_token_path.exists()
 
 
 @lru_cache

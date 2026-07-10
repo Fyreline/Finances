@@ -18,6 +18,15 @@ os.environ.setdefault("KAKEIBO_JWT_SECRET", "test-secret-not-for-production-use-
 os.environ.setdefault("KAKEIBO_DATABASE_URL", f"sqlite:///{_TEST_DATA_DIR / 'kakeibo-test.db'}")
 os.environ.setdefault("KAKEIBO_MISHKA_BASE_URL", "http://127.0.0.1:8000")
 os.environ.setdefault("KAKEIBO_ENVIRONMENT", "test")
+# gmail_configured does a real Path.exists() check (not a truthiness check
+# like starling/t212), so — unlike those two — env_file=None alone doesn't
+# isolate it: a real gmail-token.json on the developer's actual filesystem
+# would still be "found" via config.py's PROJECT_ROOT-anchored resolution.
+# Point both at a location inside the isolated test tmpdir, which never has
+# a real token, mirroring the KAKEIBO_DATABASE_URL isolation above (bug
+# found 2026-07-11 the moment a real token first existed on disk).
+os.environ.setdefault("KAKEIBO_GMAIL_CREDENTIALS_PATH", str(_TEST_DATA_DIR / "no-such-client-secret.json"))
+os.environ.setdefault("KAKEIBO_GMAIL_TOKEN_PATH", str(_TEST_DATA_DIR / "no-such-gmail-token.json"))
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

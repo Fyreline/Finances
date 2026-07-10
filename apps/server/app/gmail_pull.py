@@ -223,8 +223,8 @@ def pull_rental_emails(
     # Build a real client unless a fake service is injected (tests / no-google).
     try:
         client = GmailClient(
-            settings.gmail_credentials_path,
-            settings.gmail_token_path,
+            str(settings.resolved_gmail_credentials_path),
+            str(settings.resolved_gmail_token_path),
             service=service,  # type: ignore[arg-type]
         )
     except NotConfigured as exc:
