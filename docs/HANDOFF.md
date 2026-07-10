@@ -66,14 +66,13 @@ inferred. Answers go in [PRIVATE.md](PRIVATE.md), not here.
 - [ ] **Q2. Already registered for Self Assessment / have a UTR?** If not: **the
   registration deadline for 2025-26 is 5 October 2026** — under three months away.
   This is the one thing in this project with a statutory clock; consider doing it
-  this week, app or no app. **User update 2026-07-10:** believes the previous tax
-  year's return was filed/paid, but is unsure whether rental income around April was
-  correctly included in the right tax year — checking his own records. Claude should
-  independently check via the Gmail pipeline once Phase 5's OAuth is connected: search
-  for HMRC SA correspondence, accountant emails, and rent-received notices, and
-  cross-reference against what the user confirms was actually declared. Don't assume
-  either way until both checks land — get this one right, it's the statutory-deadline
-  question.
+  this week, app or no app. **User update 2026-07-10:** still genuinely open — a new
+  detail complicates rather than resolves this (real specifics in PRIVATE.md, this file
+  stays generic). Claude should independently check via the Gmail pipeline once
+  Phase 5's OAuth is connected: search for HMRC SA correspondence and coding notices,
+  accountant emails, and rent-received notices, and cross-reference against what the
+  user confirms was actually declared, in which tax year. Don't assume either way until
+  both checks land — get this one right, it's the statutory-deadline question.
 - [ ] **Q3. Letting arrangement:** agent or self-managed? Agent name + fee %, the
   email address their statements come from, rent amount and payment day (configures
   both the Gmail query and the income detection).
@@ -83,10 +82,11 @@ inferred. Answers go in [PRIVATE.md](PRIVATE.md), not here.
 
 **Safe-to-spend inputs (gate Phase 4's headline number):**
 
-- [ ] **Q5. Employment mechanics:** paid via the consultancy under PAYE (umbrella-style)
-  or via own limited company? (If Ltd, the tax scope of this app changes materially —
-  flag before Phase 5.) Net monthly take-home + payday day-of-month + gross annual
-  (the gross places rental profit in the right Scottish band, TAX.md §2).
+- [x] **Q5. Employment mechanics — partially answered 2026-07-10:** PAYE via the
+  consultancy (umbrella-style), confirmed **not** a Ltd company arrangement, so no scope
+  change needed. Still open: net monthly take-home + payday day-of-month + gross annual
+  (the gross places rental profit in the right Scottish band, TAX.md §2) — real figures
+  in PRIVATE.md as they land.
 - [ ] **Q6. The flat:** what does he actually pay monthly (rent to his partner's family
   member who owns it? bills split?) — the fixed-commitments anchor.
 
@@ -95,19 +95,27 @@ inferred. Answers go in [PRIVATE.md](PRIVATE.md), not here.
 - [ ] **Q7. Confirm banking:** is Starling the sole/main current account? Any other
   accounts that matter (old bank, joint anything, cash ISA elsewhere)? Manual-account
   entries cover stragglers, but knowing the map avoids mis-reading spending.
-- [ ] **Q8. Which Trading 212 product** is the rebuilt pot — Invest, Stocks ISA, or
-  Cash ISA? The public API covers Invest/Stocks ISA; a Cash ISA may need the
-  manual-balance fallback (API.md §2).
+- [x] **Q8. Which Trading 212 product — answered 2026-07-10: Stocks ISA**, covered by
+  the public API (no manual-balance fallback needed). Related product note (real detail
+  in PRIVATE.md, generically: the user wants to move this pot toward a lower-risk
+  vehicle given the goal's short time horizon) — a future tips-engine candidate, not
+  built yet.
 - [ ] **Q9. Which Gmail address** receives the rental paperwork, and is he comfortable
   with the one-time Google Cloud OAuth setup (API.md §3b) on the household Mac?
 
 **Product/scope:**
 
-- [ ] **Q10. Accept/reject each of S1–S5 and C1–C3** (PLAN §4). S3 (Warikan) and S1
-  (net worth) change the bubble roster; decide before Phase 3 ideally, Phase 6 at the
-  latest.
-- [ ] **Q11. Repo goes public?** Pages on the free plan requires it (Mishka precedent:
-  public + audited). If no: GitHub Pro, or serve the web app locally/tunnel-only.
+- [x] **Q10. Accept/reject S1–S5/C1–C3 — partially answered 2026-07-10: S1 (net
+  worth), S2 (emergency fund), S4 (contractor gap) accepted.** S3 (Warikan) not
+  selected — stays undecided/unbuilt. S5 and C1–C3 not addressed this round, still
+  open. Accepted items are candidates for Phase 9 (not yet built — Phases 3/4/6, where
+  they'd have landed, already shipped without them). A new related request also landed
+  this round: an affordability-check mechanic for goal 11 (personal wants) — see
+  PLAN.md §3 row 11 and §4 above, already folded into the public docs.
+- [x] **Q11. Repo goes public? — Confirmed public 2026-07-10.** Git history was
+  squashed to one clean commit before any remote existed, specifically to remove
+  personal specifics that had been sitting in pre-redaction commit diffs — verified
+  clean via a full-history grep. No remote configured yet.
 - [ ] **Q12. Pension reality check** (feeds S4's card): is anything currently going
   into a pension via the consultancy? (Auto-enrolment should apply if he's their
   employee — worth confirming rather than assuming.)

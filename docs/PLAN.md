@@ -82,7 +82,7 @@ not a feature.
 | 8 | Rental income & tax consolidation | Three parts: **(a) organise** — read-only Gmail pull of rental paperwork into `tax-documents/<tax-year>/`, per UK tax year, accountant-ready; **(b) estimate** — Scottish income tax on rental profit with the Section 24 finance-cost restriction vs the £1,000 property allowance, both computed, better one shown (and the NIC position stated correctly — ordinary letting is *not* liable to Class 2/4 NIC, [TAX.md](TAX.md) §4); **(c) track** — allowable-expense ledger fed from transactions + documents. Blocked on the [HANDOFF.md](HANDOFF.md) mortgage/SA open questions — the engine takes them as config, never guesses. | [PHASE-5](phases/PHASE-5-tax.md) |
 | 9 | Freeform | §4 below — each item individually acceptable/rejectable. | various |
 | 10 | Occasion gift budgets | User-requested (2026-07-10), **deferred — not needed for initial build**: an occasion-scoped sinking fund per gift-giving event (partner's birthday, Christmas — real occasions/dates: PRIVATE.md), each with a spending limit and an itemised list of planned/bought items + prices (typically one larger item in the low hundreds of pounds, plus smaller items). Verdict against the limit as items are added, same visual language as the deposit GoalBar. Structurally this is the `goals` table with a `kind='occasion'` variant + a child `gift_items` table — cheap to add once Phase 3's goal engine exists. Candidate for **Phase 9** or folded into Phase 6. | future |
-| 11 | Personal wants / project budget | User-requested (2026-07-10), **deferred**: an open-ended budget for things the user wants for himself or for hobby/side-project spending, separate from committed obligations and the house/T212 goals — a capped "fun money" pot with a running wishlist. Same structural pattern as goal 10 (`kind='personal_wants'`). Candidate for **Phase 9** or folded into Phase 6. | future |
+| 11 | Personal wants / project budget | User-requested (2026-07-10), **deferred**: a running wishlist of things the user wants for himself or for hobby/side-project spending, each with a price. Refined (2026-07-10): rather than a simple capped pot, the core mechanic is an **affordability check** — cross-reference an item's price against current safe-to-spend headroom *and* whether buying it would knock the house-deposit/T212-rebuild goals off track, returning a "yes, affordable" / "not yet — would push goal X back" verdict rather than just tracking spend against a fixed budget. The same mechanic likely fits goal 10's gift budgets too, for consistency. Same structural pattern as goal 10 (`kind='personal_wants'`). Candidate for **Phase 9** or folded into Phase 6. | future |
 
 ### 3a. The home screen: bubbles
 
@@ -101,28 +101,35 @@ the phase noted; rejected items are deleted from the phase docs before that phas
 
 ### In-app features
 
-- [ ] **S1 — Net worth strip** (Phase 3, cheap): Starling balance + T212 total + a
-  manual entry for anything else, snapshotted daily, one sparkline. The deposit and
-  rebuild goals already need the snapshot table, so this is nearly free.
-- [ ] **S2 — Emergency-fund adequacy check** (Phase 4): months-of-essential-spend
-  covered by accessible cash (essential = fixed commitments + groceries baseline),
-  verdict against the standard 3–6 month band. Honest nuance: while the deposit goal
-  dominates, this will read "below 3 months" for a while — copy should say "deliberate
-  trade-off while saving for the deposit", not guilt.
+- [x] **S1 — Net worth strip** (Phase 3, cheap) — **accepted 2026-07-10.** Starling
+  balance + T212 total + a manual entry for anything else, snapshotted daily, one
+  sparkline. The deposit and rebuild goals already need the snapshot table, so this is
+  nearly free. Not yet built (accepted after Phase 3 shipped) — candidate for Phase 9
+  alongside the other accepted-late items, or a small standalone addition.
+- [x] **S2 — Emergency-fund adequacy check** (Phase 4) — **accepted 2026-07-10.**
+  Months-of-essential-spend covered by accessible cash (essential = fixed commitments +
+  groceries baseline), verdict against the standard 3–6 month band. Honest nuance:
+  while the deposit goal dominates, this will read "below 3 months" for a while — copy
+  should say "deliberate trade-off while saving for the deposit", not guilt. Not yet
+  built (accepted after Phase 4 shipped) — candidate for Phase 9.
 - [ ] **S3 — Warikan (割り勘) partner split tracker** (Phase 6): a lightweight IOU
   ledger for the informal grocery/shared-cost split. This user's side only — log a
   shared cost, record who paid, track the running balance, settle whenever. **Never
   touches her accounts or data**; entries are manual or one-tap from a Starling
-  transaction.
-- [ ] **S4 — Contractor gap card** (Phase 4, static config + one rule): a quiet
-  dashboard card noting the contractor-vs-FTE gaps that cost real money — pension
-  contributions (is anything going into a pension at all? if the consultancy runs
-  auto-enrolment, at what %?), no sick pay/income protection assumptions, and an
-  **FTE-conversion runway sub-goal** (a small cash buffer targeted at ~April 2028 in
-  case conversion slips). Needs HANDOFF Q5/Q12 answered.
+  transaction. **Still undecided** — not selected when S1/S2/S4 were accepted
+  (2026-07-10); stays unbuilt until explicitly accepted.
+- [x] **S4 — Contractor gap card** (Phase 4, static config + one rule) — **accepted
+  2026-07-10.** A quiet dashboard card noting the contractor-vs-FTE gaps that cost real
+  money — pension contributions (is anything going into a pension at all? if the
+  consultancy runs auto-enrolment, at what %?), no sick pay/income protection
+  assumptions, and an **FTE-conversion runway sub-goal** (a small cash buffer targeted
+  at ~April 2028 in case conversion slips). Needs HANDOFF Q12 (pension) answered before
+  it can show real figures; employment type (Q5) is now confirmed PAYE. Not yet built —
+  candidate for Phase 9.
 - [ ] **S5 — Tax set-aside pot tracking** (Phase 5): the tax estimator already computes
   the accruing SA liability; this suggestion surfaces it as a "money that isn't yours"
-  line inside safe-to-spend, so January's bill never surprises.
+  line inside safe-to-spend, so January's bill never surprises. **Not yet addressed** in
+  the 2026-07-10 accept/reject round — still undecided.
 
 ### Companion projects (separate repos, household portfolio)
 
