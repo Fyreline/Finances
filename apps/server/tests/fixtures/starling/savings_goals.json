@@ -1,0 +1,11 @@
+{
+  "savingsGoalList": [
+    {
+      "savingsGoalUid": "goal-0001",
+      "name": "Rainy day",
+      "target": { "currency": "GBP", "minorUnits": 100000 },
+      "totalSaved": { "currency": "GBP", "minorUnits": 30000 },
+      "savedPercentage": 30
+    }
+  ]
+}

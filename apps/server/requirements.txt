@@ -1,0 +1,28 @@
+# Core web + data layer — see docs/ARCHITECTURE.md §4.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+pydantic-settings>=2.2
+
+# Database layer: SQLAlchemy 2.x ORM models (docs/DATA_MODEL.md).
+sqlalchemy>=2.0
+
+# Auth (docs/AUTH.md): JWT access + rotating refresh tokens. NO argon2, NO
+# password hashing anywhere in this file — Kakeibo never stores a password;
+# it verifies credentials by proxying to Mishka Hub's own /api/auth/login.
+# The absence of an argon2 dependency here is the proof.
+pyjwt>=2.9
+
+# --- Dev / test ---
+pytest>=8.0
+respx>=0.21
+
+# Gmail (docs/API.md §3): Phase 5 now uses them — the read-only Gmail client
+# (integrations/gmail.py) + the one-time OAuth consent script
+# (scripts/gmail_authorise.py). Justification per PLAN.md §6 rule 3: these are
+# exactly the libraries ARCHITECTURE.md §2's requirements comment reserved for
+# the Gmail integration, added the moment Phase 5 calls them (not before). The
+# client imports them lazily, so the test suite runs green whether or not they
+# are installed — tests inject a fake Gmail service and never touch Google.
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2

@@ -1,0 +1,69 @@
+# Deploys apps/web to GitHub Pages on every push to main touching the web app
+# (docs/DEPLOYMENT.md §1 — adapted from Michi's deploy-pages.yml, the household
+# original). The API stays on the household machine behind the shared
+# Cloudflare Tunnel; set the repo variable VITE_API_BASE to
+# https://kakeibo-api.mishka-hub.com so the deployed SPA can reach it — until
+# that variable exists the Pages build defaults to localhost:8200, i.e. it
+# only works from a machine running the API locally.
+#
+# This file is inert until the repo has a GitHub remote and Pages is enabled
+# (Settings → Pages → Source: GitHub Actions). The public-repo audit in
+# docs/DEPLOYMENT.md §1 is a launch gate BEFORE the first push — including the
+# git-history rewrite flagged in docs/HANDOFF.md's Phase 8 note.
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/web/**', '.github/workflows/deploy-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npm run typecheck
+        working-directory: apps/web
+      - run: npm run test -- --run
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+        env:
+          VITE_BASE: /Finances/
+          VITE_API_BASE: ${{ vars.VITE_API_BASE || 'http://127.0.0.1:8200' }}
+      # SPA fallback: GitHub Pages serves 404.html for unknown paths, so a
+      # hard reload on any non-root URL still boots the app (deep links are
+      # hash-based, but this keeps stray path hits from 404ing —
+      # docs/DEPLOYMENT.md §1).
+      - run: cp dist/index.html dist/404.html
+        working-directory: apps/web
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

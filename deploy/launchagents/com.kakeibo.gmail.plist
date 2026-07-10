@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Weekly rental-paperwork pull, Sundays 09:00 (docs/DEPLOYMENT.md §4).
+     No-ops until the Gmail OAuth token + sender config exist (API.md §3c). -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.kakeibo.gmail</string>
+  <key>WorkingDirectory</key><string>/Users/mack/Documents/Dev/Finances/apps/server</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/.venv/bin/python</string>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/scripts/pull_rental_emails.py</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>0</integer>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/Users/mack/Library/Logs/kakeibo/gmail.log</string>
+  <key>StandardErrorPath</key><string>/Users/mack/Library/Logs/kakeibo/gmail.err.log</string>
+</dict></plist>

@@ -1,0 +1,33 @@
+# Python
+apps/server/.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+
+# Node / web
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.vite/
+npm-debug.log*
+yarn-error.log*
+
+# Local data & tax documents pulled from bank/email — never committed
+/data/*
+!/data/.gitkeep
+/tax-documents/*
+!/tax-documents/.gitkeep
+
+# Secrets / local state
+*.local
+.secrets/
+credentials/
+
+# Personal specifics kept out of the public repo — see docs/PRIVATE.md's own header
+docs/PRIVATE.md
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

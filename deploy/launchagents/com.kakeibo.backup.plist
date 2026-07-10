@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Nightly 03:15 db snapshot + weekly tax-documents archive
+     (docs/DEPLOYMENT.md §4 — 03:15, not 03:00, so it never contends with
+     Michi's 03:00 backup). Venv python directly, never /bin/sh. -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.kakeibo.backup</string>
+  <key>WorkingDirectory</key><string>/Users/mack/Documents/Dev/Finances/apps/server</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/.venv/bin/python</string>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/scripts/backup_db.py</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>15</integer>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/mack/Library/Logs/kakeibo/backup.log</string>
+  <key>StandardErrorPath</key><string>/Users/mack/Library/Logs/kakeibo/backup.err.log</string>
+</dict></plist>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template prepared in Phase 8 (docs/DEPLOYMENT.md §3), modelled on
+     com.michi.api.plist. Install (a human step, not automated):
+       mkdir -p ~/Library/Logs/kakeibo
+       cp deploy/launchagents/com.kakeibo.api.plist ~/Library/LaunchAgents/
+       launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kakeibo.api.plist
+     Gotcha (pre-paid by Mishka): the venv's *resolved* python binary needs
+     Full Disk Access before launchd can read ~/Documents. No - -reload: after
+     code changes, launchctl kickstart -k gui/$(id -u)/com.kakeibo.api -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.kakeibo.api</string>
+  <key>WorkingDirectory</key><string>/Users/mack/Documents/Dev/Finances/apps/server</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/.venv/bin/uvicorn</string>
+    <string>app.main:app</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8200</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/mack/Library/Logs/kakeibo/api.log</string>
+  <key>StandardErrorPath</key><string>/Users/mack/Library/Logs/kakeibo/api.err.log</string>
+</dict></plist>

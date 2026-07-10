@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/* Self-hosted fonts (docs/DESIGN.md §1, docs/phases/PHASE-1-scaffold.md —
+   "mirror Michi's package.json set, minus Noto JP": Kakeibo has no Japanese
+   UI text beyond the 家計簿 wordmark glyph, which system fonts render fine). */
+@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/source-serif-4";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Colours + shadows live in the SHARED Aizome palette (canonical in
+   learningLanguageMachine, mirrored here — see theme.css header + Michi's
+   .claude/skills/theme-sync). Never hand-edit this file directly. */
+@import "./theme.css";
+
+@theme {
+  /* type */
+  --font-display: "Schibsted Grotesk Variable", "Space Grotesk", Arial, sans-serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, serif;
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  /* radius — capped at 16px, "nothing pill-shaped except actual pills"
+     (Mishka DESIGN §1c, inherited via docs/DESIGN.md §1) */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+
+  /* ------------------------------------------------------------------
+     Kakeibo-only data-viz extension (docs/DESIGN.md §2a) — app-specific
+     tokens stay out of the shared theme.css; promote to canonical only if
+     a sibling ever wants them. viz-1..4 keep their shared theme.css values;
+     5-8 extend the categorical family here.
+     ------------------------------------------------------------------ */
+  --color-viz-5: #37718e;   /* steel blue (aizome sky) */
+  --color-viz-6: #c33c54;   /* hanko crimson (clay) */
+  --color-viz-7: #2e8b74;   /* mint teal (olive family) */
+  --color-viz-8: #9c3f6d;   /* plum (fig) */
+
+  /* semantic money */
+  --color-gain: #2e8b74;        /* income, growth, under-budget (= olive) */
+  --color-spend: #17293a;       /* ordinary outgoings are INK, not red (§6) */
+  --color-over: #c33c54;        /* over target/budget — crimson as information */
+  --color-setaside: #37718e;    /* committed/reserved money (tax set-aside, goals) */
+
+  /* sequential ramp (heat/intensity) — mint→indigo, 5 steps */
+  --color-seq-1: #e9f6f2;
+  --color-seq-2: #aee3d8;
+  --color-seq-3: #6aaebc;
+  --color-seq-4: #37718e;
+  --color-seq-5: #254e70;
+
+  /* diverging (under <-> over, projection vs target) */
+  --color-div-neg: #2e8b74;
+  --color-div-mid: #dcebe8;
+  --color-div-pos: #c33c54;
+}
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --color-viz-5: #7fb3d0;
+  --color-viz-6: #e05a72;
+  --color-viz-7: #5fcfae;
+  --color-viz-8: #d1729c;
+
+  --color-gain: #5fcfae;
+  --color-spend: #ecf6f4;
+  --color-over: #e05a72;
+  --color-setaside: #8ee3ef;
+
+  --color-seq-1: #16283a;
+  --color-seq-2: #1f4254;
+  --color-seq-3: #2f6b7e;
+  --color-seq-4: #5aa7bd;
+  --color-seq-5: #8ee3ef;
+
+  --color-div-neg: #5fcfae;
+  --color-div-mid: #223c4e;
+  --color-div-pos: #e05a72;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

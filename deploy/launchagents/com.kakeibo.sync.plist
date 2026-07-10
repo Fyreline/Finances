@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Starling + T212 pull every 6h (docs/DEPLOYMENT.md §4). Safe to install
+     before credentials exist: the script exits 0 with a not_configured
+     sync_run while keys are absent. Invokes the venv python directly, never
+     /bin/sh (the Michi backup-agent gotcha). -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.kakeibo.sync</string>
+  <key>WorkingDirectory</key><string>/Users/mack/Documents/Dev/Finances/apps/server</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/.venv/bin/python</string>
+    <string>/Users/mack/Documents/Dev/Finances/apps/server/scripts/sync_providers.py</string>
+  </array>
+  <key>StartInterval</key><integer>21600</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/mack/Library/Logs/kakeibo/sync.log</string>
+  <key>StandardErrorPath</key><string>/Users/mack/Library/Logs/kakeibo/sync.err.log</string>
+</dict></plist>

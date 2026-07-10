@@ -1,0 +1,80 @@
+{
+  "feedItems": [
+    {
+      "feedItemUid": "feed-0001",
+      "categoryUid": "cat-0001-default",
+      "amount": { "currency": "GBP", "minorUnits": 4599 },
+      "sourceAmount": { "currency": "GBP", "minorUnits": 4599 },
+      "direction": "OUT",
+      "updatedAt": "2026-05-10T12:00:00.000Z",
+      "transactionTime": "2026-05-10T12:00:00.000Z",
+      "settlementTime": "2026-05-10T12:00:00.000Z",
+      "source": "FASTER_PAYMENTS_OUT",
+      "status": "SETTLED",
+      "counterPartyType": "MERCHANT",
+      "counterPartyName": "Willow & Pine Grocers",
+      "reference": "GROCERY SHOP",
+      "spendingCategory": "GROCERIES"
+    },
+    {
+      "feedItemUid": "feed-0002",
+      "categoryUid": "cat-0001-default",
+      "amount": { "currency": "GBP", "minorUnits": 999 },
+      "direction": "OUT",
+      "updatedAt": "2026-05-12T08:00:00.000Z",
+      "transactionTime": "2026-05-12T08:00:00.000Z",
+      "settlementTime": "2026-05-12T08:00:00.000Z",
+      "source": "DIRECT_DEBIT",
+      "status": "SETTLED",
+      "counterPartyType": "MERCHANT",
+      "counterPartyName": "Streamly Plus",
+      "reference": "STREAMLY PLUS SUBSCRIPTION",
+      "spendingCategory": "ENTERTAINMENT"
+    },
+    {
+      "feedItemUid": "feed-0003",
+      "categoryUid": "cat-0001-default",
+      "amount": { "currency": "GBP", "minorUnits": 250000 },
+      "direction": "IN",
+      "updatedAt": "2026-05-15T00:00:00.000Z",
+      "transactionTime": "2026-05-15T00:00:00.000Z",
+      "settlementTime": "2026-05-15T00:00:00.000Z",
+      "source": "FASTER_PAYMENTS_IN",
+      "status": "SETTLED",
+      "counterPartyType": "COMPANY",
+      "counterPartyName": "Bluebell Consulting Ltd",
+      "reference": "SALARY",
+      "spendingCategory": "INCOME"
+    },
+    {
+      "feedItemUid": "feed-0004",
+      "categoryUid": "cat-0001-default",
+      "amount": { "currency": "GBP", "minorUnits": 5000 },
+      "direction": "OUT",
+      "updatedAt": "2026-05-18T10:00:00.000Z",
+      "transactionTime": "2026-05-18T10:00:00.000Z",
+      "settlementTime": null,
+      "source": "FASTER_PAYMENTS_OUT",
+      "status": "PENDING",
+      "counterPartyType": "MERCHANT",
+      "counterPartyName": "Fernbank Renovations",
+      "reference": "INVOICE 42",
+      "spendingCategory": "HOME"
+    },
+    {
+      "feedItemUid": "feed-0005",
+      "categoryUid": "cat-0001-default",
+      "amount": { "currency": "GBP", "minorUnits": 20000 },
+      "direction": "OUT",
+      "updatedAt": "2026-05-20T09:00:00.000Z",
+      "transactionTime": "2026-05-20T09:00:00.000Z",
+      "settlementTime": "2026-05-20T09:00:00.000Z",
+      "source": "FASTER_PAYMENTS_OUT",
+      "status": "SETTLED",
+      "counterPartyType": "SENDER",
+      "counterPartyName": "Own Investment Transfer",
+      "reference": "TO T212",
+      "spendingCategory": "SAVING"
+    }
+  ]
+}

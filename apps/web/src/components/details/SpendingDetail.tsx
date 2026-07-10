@@ -1,0 +1,97 @@
+import { useEffect, useState } from 'react'
+import { api, type MonthSummary } from '../../api'
+import { CategoryBreakdown } from '../CategoryBreakdown'
+import { TipsList } from '../TipsList'
+import { TransactionTable } from '../TransactionTable'
+
+type Tab = 'breakdown' | 'transactions' | 'tips'
+
+/** Current month as `YYYY-MM` in local (UK) time — `en-CA` yields
+ * `YYYY-MM-DD` so the slice is stable. */
+function currentMonth(): string {
+  return new Date().toLocaleDateString('en-CA').slice(0, 7)
+}
+
+function BreakdownTab({ month }: { month: string }) {
+  const [summary, setSummary] = useState<MonthSummary | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    api
+      .monthSummary(month)
+      .then((s) => !cancelled && setSummary(s))
+      .catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : "Couldn't load"))
+    return () => {
+      cancelled = true
+    }
+  }, [month])
+  if (error) return <p className="text-[13px] text-ink-mid">{error}</p>
+  if (!summary) return <p className="font-mono text-[11px] text-ink-soft">Loading…</p>
+  return <CategoryBreakdown summary={summary} />
+}
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'breakdown', label: 'Breakdown' },
+  { key: 'transactions', label: 'Transactions' },
+  { key: 'tips', label: 'Tips' },
+]
+
+/** Internal tabs are a hash segment on top of the bubble key
+ * (`#spending/transactions`) — docs/DESIGN.md §3c, and HomePage's
+ * `useHashRoute` deliberately only parses the bubble-key half so a later
+ * phase (this one) can add tab state without touching that contract. */
+function useTabHash(defaultTab: Tab): [Tab, (tab: Tab) => void] {
+  const parse = (): Tab => {
+    const raw = window.location.hash.replace(/^#/, '')
+    const tab = raw.split('/')[1]
+    return (TABS.some((t) => t.key === tab) ? tab : defaultTab) as Tab
+  }
+  const [tab, setTabState] = useState<Tab>(parse)
+
+  useEffect(() => {
+    const onHashChange = () => setTabState(parse())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const setTab = (next: Tab) => {
+    const bubbleKey = window.location.hash.replace(/^#/, '').split('/')[0] || 'spending'
+    window.location.hash = `${bubbleKey}/${next}`
+    setTabState(next)
+  }
+
+  return [tab, setTab]
+}
+
+export function SpendingDetail() {
+  // All three tabs are live as of Phase 4; Breakdown is the natural landing
+  // tab for the Spending bubble (docs/DESIGN.md §3b row 4).
+  const [tab, setTab] = useTabHash('breakdown')
+  const month = currentMonth()
+
+  return (
+    <div className="space-y-4">
+      <div role="tablist" aria-label="Spending views" className="flex gap-1 border-b border-line">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-3 py-2 font-mono text-[11px] uppercase tracking-[0.08em] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay/60 ${
+              tab === t.key ? 'border-b-2 border-clay text-ink' : 'text-ink-soft hover:text-ink-mid'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'breakdown' && <BreakdownTab month={month} />}
+      {tab === 'transactions' && <TransactionTable />}
+      {tab === 'tips' && <TipsList period={month} />}
+    </div>
+  )
+}
