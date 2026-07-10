@@ -22,7 +22,13 @@ yarn-error.log*
 # Secrets / local state
 *.local
 .secrets/
+secrets/
 credentials/
+apps/server/data/
+client_secret.json
+gmail-token.json
+*.pem
+*.key
 
 # Personal specifics kept out of the public repo — see docs/PRIVATE.md's own header
 docs/PRIVATE.md
