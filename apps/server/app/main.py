@@ -20,7 +20,21 @@ from .engines.deals import DealRunValidationError
 from .errors import register_error_handlers
 from .identity import MishkaIdentityClient
 from .models import Base, seed_categories
-from .routers import accounts, auth, deals, gifts, goals, health, recurring, summary, sync, tax, transactions, wants
+from .routers import (
+    accounts,
+    auth,
+    deals,
+    gifts,
+    goals,
+    health,
+    recurring,
+    service,
+    summary,
+    sync,
+    tax,
+    transactions,
+    wants,
+)
 from .seed_deals import seed_deals
 from .seed_goals import seed_goals
 from .tax_years import seed_tax_years
@@ -96,6 +110,9 @@ def create_app() -> FastAPI:
     app.include_router(sync.router, prefix="/api")
     app.include_router(accounts.router, prefix="/api")
     app.include_router(goals.router, prefix="/api")
+    # /api/goal/service authenticates itself with the static sibling token
+    # (routers/service.py) — machine-to-machine, outside the JWT flow.
+    app.include_router(service.router, prefix="/api")
     app.include_router(tax.router, prefix="/api")
     app.include_router(summary.router, prefix="/api")
     app.include_router(recurring.router, prefix="/api")

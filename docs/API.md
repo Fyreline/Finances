@@ -219,7 +219,8 @@ research with dated citations**, not a live feed.
 ## 5. Kakeibo's own REST API
 
 Base `http://127.0.0.1:8200` (prod) / `8201` (dev), all routes under `/api`. Bearer JWT
-(Kakeibo's own, AUTH.md) on everything except `login/refresh/health`. Errors
+(Kakeibo's own, AUTH.md) on everything except `login/refresh/health` and
+`goal/service` (static sibling token, below). Errors
 `{detail, code}`. All amounts integer pence, signed. snake_case JSON; the client never
 sends user ids; POST bodies ≤64KB.
 
@@ -294,6 +295,14 @@ GET  /api/goals                  → {goals:[{key, label, target_minor, target_d
                                     "on_track"|"behind"|"no_trend",
                                     catch_up_per_month_minor, series:[{date, value_minor}]}]}
 PATCH /api/goals/{key}           {monthly_pledge_minor? | target_minor? | source_account_ids?}
+
+# Sibling read for Sukumo (its docs/API.md §4 owns the shape; static bearer token
+# KAKEIBO_SERVICE_TOKEN, not the JWT flow — Sukumo never holds a household password.
+# 503 service_not_configured while the token or the house_deposit goal is unconfigured;
+# 401 on a missing/bad token. pct floors to one decimal (ARCHITECTURE §6); pace_status
+# is the goal engine's verdict verbatim.
+GET  /api/goal/service           → {goal_pence, saved_pence, pct,
+                                    pace_status: "on_track"|"behind"|"no_trend", as_of}
 
 # Tax (TAX.md governs the semantics)
 GET  /api/tax/config · PUT /api/tax/config        # the HANDOFF open-question inputs

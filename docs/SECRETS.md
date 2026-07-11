@@ -26,6 +26,7 @@ Rules (ARCHITECTURE.md §5):
 | `KAKEIBO_T212_ENV` | `live` or `demo` | `live` for the real account; `demo` (demo.trading212.com) for development |
 | `KAKEIBO_GMAIL_CREDENTIALS_PATH` | Path to the Google OAuth **Desktop app** `client_secret.json` | Google Cloud console → project `kakeibo-local` → enable Gmail API → OAuth consent (External, self as test user) → Credentials → OAuth client ID (Desktop) → download JSON → save to `data/secrets/client_secret.json` (gitignored) — full steps API.md §3b |
 | `KAKEIBO_GMAIL_TOKEN_PATH` | Where the granted read-only refresh token lands | default `data/secrets/gmail-token.json`; created by running `scripts/gmail_authorise.py` once, interactively (browser consent for `gmail.readonly` only) |
+| `KAKEIBO_SERVICE_TOKEN` | Static bearer token for Sukumo's read-only sibling endpoint `GET /api/goal/service` (API.md §5) — Michi's `MICHI_SERVICE_TOKEN` precedent | `openssl rand -hex 24` — generate fresh; the same value goes in Sukumo's `.env` as `SUKUMO_KAKEIBO_SERVICE_TOKEN`; unset = endpoint answers 503 |
 | `KAKEIBO_MISHKA_BASE_URL` | Mishka Hub identity endpoint (AUTH.md) | not a secret; default `http://127.0.0.1:8000` |
 | `KAKEIBO_DATABASE_URL` | SQLite path | not a secret; default prod db, dev overrides to `kakeibo.dev.db` |
 | `KAKEIBO_CORS_ORIGINS` | CORS allow-list override | only if a custom domain is ever added |

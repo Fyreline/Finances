@@ -118,6 +118,13 @@ class Settings(BaseSettings):
     goal_t212_rebuild_baseline_minor: str = ""
     goal_t212_rebuild_baseline_date: str = ""
 
+    # --- Sibling read token (Sukumo's docs/API.md §4, routers/service.py).
+    # A static machine-to-machine bearer token, deliberately outside the JWT
+    # flow — Sukumo must never hold a household password (docs/AUTH.md's
+    # reasoning, applied one level up; Michi's MICHI_SERVICE_TOKEN is the
+    # precedent). Empty = the endpoint answers 503 not-configured. ---
+    service_token: str = ""
+
     @property
     def auth_configured(self) -> bool:
         return bool(self.jwt_secret)

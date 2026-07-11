@@ -239,8 +239,17 @@ def test_401_sweep_over_every_openapi_route(client):
     without a token — a scripted sweep over the real OpenAPI route list, not
     a spot check. Exemptions are exactly the documented anonymous surface:
     login, refresh, logout (it authenticates via the refresh token in its own
-    body) and health (liveness flags only, never balances)."""
-    exempt = {"/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/health"}
+    body) and health (liveness flags only, never balances) — plus the one
+    non-JWT authed route, the sibling read for Sukumo (routers/service.py),
+    whose static-token auth (503 unconfigured / 401 missing-or-bad token,
+    never data) is swept by tests/test_service.py instead."""
+    exempt = {
+        "/api/auth/login",
+        "/api/auth/refresh",
+        "/api/auth/logout",
+        "/api/health",
+        "/api/goal/service",
+    }
     dummies = {
         "tax_year": "2026-27",
         "yyyy_mm": "2026-07",
