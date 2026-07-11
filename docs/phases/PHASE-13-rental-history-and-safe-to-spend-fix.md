@@ -42,8 +42,8 @@ earlier tax years of real rent statements have never been pulled at all.
 
 ## Item B — delete confirmed-non-rental documents
 
-Real, explicit request: "delete the docs that clearly aren't rental (i.e not from
-southside)." Phase 12 reclassified 91 false-positive `rent_statement` documents to
+Real, explicit request: delete documents that clearly aren't rental-related (i.e. not
+from the letting agent). Phase 12 reclassified 91 false-positive `rent_statement` documents to
 `doc_type='other'` rather than deleting them (that phase's spec was deliberately
 conservative). The user has now explicitly asked for deletion, which supersedes that
 default.
