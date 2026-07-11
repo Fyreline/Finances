@@ -101,11 +101,18 @@ async def get_safe_to_spend(user_id: int = Depends(current_user), session: Sessi
 
 @router.get("/summary/month/{month}")
 async def get_month_summary(
-    month: str, user_id: int = Depends(current_user), session: Session = Depends(get_session)
+    month: str,
+    period_mode: str = "calendar",
+    user_id: int = Depends(current_user),
+    session: Session = Depends(get_session),
 ) -> dict:
     if not _MONTH_RE.match(month):
         raise KakeiboHTTPException(status_code=400, detail="month must be YYYY-MM", code="invalid_month")
-    return month_summary_payload(session, user_id, month)
+    if period_mode not in ("calendar", "payday"):
+        raise KakeiboHTTPException(
+            status_code=400, detail="period_mode must be 'calendar' or 'payday'", code="invalid_period_mode"
+        )
+    return month_summary_payload(session, user_id, month, period_mode=period_mode)
 
 
 @router.get("/tips")

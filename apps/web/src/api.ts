@@ -375,7 +375,16 @@ export interface MonthSummary {
   categories: MonthCategory[]
   largest_movers: { key: string; delta_minor: number }[]
   methodology_note: string
+  // Phase 12 §5b — which framing produced this breakdown and the exact window
+  // it covers. 'calendar' (default) = the calendar month; 'payday' = the
+  // current payday-to-payday window (the same one safe-to-spend uses).
+  period_mode: 'calendar' | 'payday'
+  period: { start: string | null; end: string | null }
+  payday_source: 'manual' | 'detected' | null
+  setup_missing: string[]
 }
+
+export type PeriodMode = 'calendar' | 'payday'
 
 export type TipSeverity = 'info' | 'worth_a_look'
 
@@ -541,6 +550,10 @@ export interface TaxDocument {
   amount_minor: number | null
   amount_confidence: 'parsed' | 'guessed' | 'none'
   reviewed: boolean
+  // Phase 12 — how many rental-ledger rows this document produced. >0 means it
+  // has already become tax data (auto-parsed statement, or a human), so the
+  // review UI shows "in your ledger" rather than a review action.
+  ledger_entry_count: number
   notes: string | null
 }
 
@@ -738,7 +751,8 @@ export const api = {
 
   bubbles: () => get<BubblesSummary>('/api/summary/bubbles'),
   safeToSpend: () => get<SafeToSpend>('/api/summary/safe-to-spend'),
-  monthSummary: (month: string) => get<MonthSummary>(`/api/summary/month/${month}`),
+  monthSummary: (month: string, periodMode: PeriodMode = 'calendar') =>
+    get<MonthSummary>(buildQuery(`/api/summary/month/${month}`, { period_mode: periodMode })),
   tips: (period?: string) => get<{ tips: Tip[] }>(buildQuery('/api/tips', { period })),
   dismissTip: (id: number) => post<{ dismissed: boolean }>(`/api/tips/${id}/dismiss`, {}),
   recurring: () => get<RecurringList>('/api/recurring'),

@@ -187,6 +187,16 @@ fetch_attachment` only.
   unambiguous hit), insert `tax_documents` row with `reviewed=0`.
 - The UI's tax page lists unreviewed docs for a human to confirm type/amount before
   anything flows into `rental_ledger` — parsed mail never silently becomes tax data.
+  **Phase 12 tightening + one narrow exception:** `doc_type='rent_statement'` is now
+  assigned only to a *confirmed* letting-agent statement
+  (`is_confirmed_rent_statement`: the exact `"Monthly Rental Statement "` subject
+  prefix, or the configured `KAKEIBO_RENT_STATEMENT_SENDER_DOMAIN`) — not a fuzzy
+  keyword match, which had swept bank/energy/broker "statement" emails into the queue.
+  A confirmed statement whose PDF parses *confidently* against the learned layout is
+  the single case where the pipeline auto-creates `rental_ledger` rows and sets
+  `reviewed=1` itself (docs/phases/PHASE-12); every other document, and any statement
+  that doesn't parse confidently, still goes through the human review gate exactly as
+  before (`reviewed=0`, no ledger rows).
 - Everything under `tax-documents/` is gitignored (already in the repo's `.gitignore`)
   and the folder is exactly what gets handed to an accountant at year end.
 
@@ -266,7 +276,12 @@ GET  /api/sync/status            → {runs:[{provider, started_at, finished_at, 
 
 # Summary & insights (§6)
 GET  /api/summary/safe-to-spend  → §6a payload
-GET  /api/summary/month/{yyyy-mm} → §6b payload
+GET  /api/summary/month/{yyyy-mm}?period_mode=calendar|payday → §6b payload
+                                  # Phase 12 §5b: 'calendar' (default) bounds the
+                                  # breakdown by the calendar month exactly as before;
+                                  # 'payday' bounds it by the current payday-to-payday
+                                  # window from resolve_period() — the SAME window
+                                  # safe-to-spend uses for today, so the two agree.
 GET  /api/tips?period=2026-07    → {tips:[{id, rule_key, severity, title, body, data}]}
 POST /api/tips/{id}/dismiss      → 200
 # Financial config (the safe-to-spend inputs, DATA_MODEL §5) — added Phase 4;
@@ -321,7 +336,13 @@ GET  /api/tax/years/{key}/summary → {gross_rents_minor, allowable_expenses:{<t
                                     missing_inputs:[str]}   # estimate null while inputs missing;
                                     # assumptions carries a note when mortgage interest is a
                                     # rate×balance estimate rather than the exact certificate figure
-GET  /api/tax/documents?year=2026-27&unreviewed=1 → {documents:[...]}
+GET  /api/tax/documents?year=2026-27&unreviewed=1 → {documents:[{...,
+                                    ledger_entry_count}]}   # Phase 12: how many
+                                    # rental_ledger rows this document produced —
+                                    # >0 = auto-processed into the ledger (a confirmed
+                                    # rent statement parsed by the Phase-12 pipeline, or
+                                    # a human), so the review UI shows "in ledger" not a
+                                    # review action (docs/phases/PHASE-12 item 1e)
 PATCH /api/tax/documents/{id}    {doc_type? | amount_minor? | reviewed?} → 200
 POST /api/tax/ledger             {tax_year, local_date, kind, expense_type?, amount_minor,
                                   transaction_id? | tax_document_id?, notes?} → 201
@@ -427,8 +448,21 @@ its long-present `direction="in"` path.
  categories:[{key, label, viz_slot, spend_minor, share_pct, avg_3mo_minor,
               delta_vs_avg_pct, benchmark: null | {band: "maintainable"|"average"|"above_average",
               band_bounds_minor:[lo, hi], source: str, as_of: str}}],
- largest_movers:[{key, delta_minor}], methodology_note: str}
+ largest_movers:[{key, delta_minor}], methodology_note: str,
+ # Phase 12 §5b provenance — always present, additive (calendar-mode numbers are
+ # unchanged from before the toggle; these just say how the window was chosen):
+ period_mode: "calendar"|"payday",
+ period: {start, end},              # calendar-month bounds, or the payday window;
+                                    # {null,null} when payday mode can't resolve a period
+ payday_source: "manual"|"detected"|null,   # non-null only in payday mode
+ setup_missing: [str]}              # payday mode with no resolvable period → e.g.
+                                    # ["payday_day"], categories empty (degrade, not crash)
 ```
+
+In `'payday'` mode the trailing-3 comparison uses the three preceding equal-length
+payday windows (apples-to-apples with the current window), mirroring calendar
+mode's this-3-months / prev-3-months; benchmark bands (monthly figures) apply as-is
+since a payday window is ~one month.
 
 **Benchmark methodology — heuristic, stated as such (the `methodology_note` ships in
 every response):** bands per category live in a config file

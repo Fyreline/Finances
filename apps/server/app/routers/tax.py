@@ -21,7 +21,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import current_user
@@ -309,7 +309,7 @@ async def year_summary(
 # --------------------------------------------------------------------------- #
 #  Documents review queue (docs/API.md §5, docs/DESIGN.md §4g)                #
 # --------------------------------------------------------------------------- #
-def _doc_dict(d: TaxDocument) -> dict:
+def _doc_dict(d: TaxDocument, ledger_entry_count: int = 0) -> dict:
     return {
         "id": d.id,
         "tax_year": d.tax_year,
@@ -321,7 +321,24 @@ def _doc_dict(d: TaxDocument) -> dict:
         "amount_minor": d.amount_minor,
         "amount_confidence": d.amount_confidence,
         "reviewed": bool(d.reviewed),
+        # How many ledger rows this document produced — the honest signal the
+        # review UI uses to tell "auto-processed, already in your ledger,
+        # nothing to do" apart from "needs your review" (docs/phases/PHASE-12
+        # item 1e). >0 means the Phase-12 auto-parse (or a human) has already
+        # turned it into tax data.
+        "ledger_entry_count": ledger_entry_count,
         "notes": d.notes,
+    }
+
+
+def _ledger_counts_by_document(session: Session) -> dict[int, int]:
+    return {
+        doc_id: count
+        for doc_id, count in session.execute(
+            select(RentalLedgerEntry.tax_document_id, func.count())
+            .where(RentalLedgerEntry.tax_document_id.is_not(None))
+            .group_by(RentalLedgerEntry.tax_document_id)
+        ).all()
     }
 
 
@@ -339,7 +356,8 @@ async def list_documents(
         stmt = stmt.where(TaxDocument.reviewed == 0)
     # Unreviewed first, then newest — the review queue order (docs/DESIGN.md §4g).
     rows = session.scalars(stmt.order_by(TaxDocument.reviewed, TaxDocument.received_at.desc())).all()
-    return {"documents": [_doc_dict(d) for d in rows]}
+    counts = _ledger_counts_by_document(session)
+    return {"documents": [_doc_dict(d, counts.get(d.id, 0)) for d in rows]}
 
 
 class DocumentPatchBody(BaseModel):
@@ -371,7 +389,10 @@ async def patch_document(
     if "reviewed" in patch:
         doc.reviewed = 1 if patch["reviewed"] else 0
     session.commit()
-    return {"document": _doc_dict(doc)}
+    ledger_count = session.scalar(
+        select(func.count()).select_from(RentalLedgerEntry).where(RentalLedgerEntry.tax_document_id == doc.id)
+    ) or 0
+    return {"document": _doc_dict(doc, ledger_count)}
 
 
 # --------------------------------------------------------------------------- #

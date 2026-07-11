@@ -325,6 +325,58 @@ def test_month_summary_rejects_bad_month(authed):
     assert client.get("/api/summary/month/2026-7", headers=headers).status_code == 400
 
 
+# ---------------------------------------- calendar/payday toggle (Phase 12 §5b)
+def test_month_summary_calendar_mode_states_mode_and_window(authed):
+    """Calendar mode (the default) states its framing + exact window; the
+    breakdown numbers are unchanged from before the toggle existed."""
+    client, user_id, headers = authed
+    r = client.get("/api/summary/month/2026-07", headers=headers).json()
+    assert r["period_mode"] == "calendar"
+    assert r["period"] == {"start": "2026-07-01", "end": "2026-07-31"}
+
+
+def test_month_summary_rejects_bad_period_mode(authed):
+    client, user_id, headers = authed
+    assert client.get("/api/summary/month/2026-07?period_mode=weird", headers=headers).status_code == 400
+
+
+def test_month_summary_payday_mode_agrees_with_safe_to_spend_period(authed):
+    """docs/phases/PHASE-12 §5b acceptance: payday-mode output uses the EXACT
+    period `resolve_period()` gives `safe_to_spend` for today — the two surfaces
+    can never disagree — and bounds the breakdown by that window."""
+    from app.dates import now_london
+
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    client.put(
+        "/api/financial-config", headers=headers,
+        json={"payday_day": 15, "net_monthly_income_minor": 250000},
+    )
+    today = now_london().strftime("%Y-%m-%d")
+    _seed_txn(account_id, "eo-in", amount_minor=-2000, local_date=today, counterparty="Cafe", category_key="eating_out")
+    _seed_txn(account_id, "eo-out", amount_minor=-9999, local_date="2024-01-01", counterparty="Old", category_key="eating_out")
+
+    month = today[:7]
+    payday = client.get(f"/api/summary/month/{month}?period_mode=payday", headers=headers).json()
+    sts = client.get("/api/summary/safe-to-spend", headers=headers).json()
+
+    assert payday["period_mode"] == "payday"
+    assert payday["payday_source"] == "manual"
+    assert payday["period"] == sts["period"]  # same window, by construction
+    eo = next(c for c in payday["categories"] if c["key"] == "eating_out")
+    assert eo["spend_minor"] == 2000  # only the in-window spend, not the 2024 one
+
+
+def test_month_summary_payday_mode_setup_missing_without_payday(authed):
+    """No manual payday and no detectable salary anchor → degrade to a
+    setup_missing payload, never a crash or a silent calendar fallback."""
+    client, user_id, headers = authed
+    r = client.get("/api/summary/month/2026-07?period_mode=payday", headers=headers).json()
+    assert r["period_mode"] == "payday"
+    assert r["period"] == {"start": None, "end": None}
+    assert r["setup_missing"] == ["payday_day"]
+
+
 # ---------------------------------------------------------------------- tips
 def test_tips_generate_and_dismiss_stays_dismissed(authed):
     client, user_id, headers = authed

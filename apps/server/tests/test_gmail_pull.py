@@ -61,7 +61,14 @@ def test_build_query_empty_without_senders():
 
 def test_classify_and_parse_amount():
     assert classify_doc_type("noreply@lender.example", "Your annual mortgage interest certificate") == "mortgage_interest_cert"
-    assert classify_doc_type("agent@example.com", "Monthly rent statement") == "rent_statement"
+    # rent_statement is now assigned ONLY to a confirmed letting-agent statement
+    # (exact subject prefix, or the configured agent domain) — docs/phases/
+    # PHASE-12 item 1a. A fuzzy "statement"/"rent" keyword no longer qualifies.
+    assert classify_doc_type("agent@example.com", "Monthly Rental Statement for X - Y (Sep 2025)") == "rent_statement"
+    assert classify_doc_type("noreply@agent.example.com", "Your account activity", agent_domain="agent.example.com") == "rent_statement"
+    # These previously tripped the broad keyword rule into rent_statement; now honestly 'other'.
+    assert classify_doc_type("noreply@bank.example", "Your latest current account statement") == "other"
+    assert classify_doc_type("agent@example.com", "Monthly rent statement") == "other"
     assert classify_doc_type("hmrc@example.gov.uk", "Your Self Assessment tax return") == "other"
     assert parse_amount_minor("Rent received £850.00 this month") == (85_000, "parsed")
     # Two distinct amounts → left for a human, never guessed.

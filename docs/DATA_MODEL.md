@@ -310,6 +310,12 @@ rental_ledger                       -- the SA105-shaped ledger; one row per inco
                                     -- | 'capital_improvement' (tracked, NOT allowable — CGT memo)
   amount_minor INTEGER NOT NULL     -- positive; kind carries the sign semantics
   source TEXT NOT NULL              -- 'transaction' | 'document' | 'manual'
+                                    -- 'document' rows are now produced automatically by
+                                    -- the Phase 12 rent-statement parser (income + agent_fees
+                                    -- [+ repairs]) for a confirmed, confidently-parsed
+                                    -- statement, keyed on tax_document_id for idempotency
+                                    -- (app/rent_statement_ingest.py); no schema change — the
+                                    -- rows + their notes are the audit trail
   transaction_id INTEGER REFERENCES transactions(id)
   tax_document_id INTEGER REFERENCES tax_documents(id)
   notes TEXT

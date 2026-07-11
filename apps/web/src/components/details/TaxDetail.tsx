@@ -493,30 +493,58 @@ function DocumentsPanel() {
       </p>
     )
 
+  // `?? 0` guards a briefly-stale backend during deploy (the field is absent
+  // until com.kakeibo.api restarts) — degrades to the review path, never a
+  // crash (2026-07-11 missing-field incident lesson).
+  const autoCount = docs.filter((d) => (d.ledger_entry_count ?? 0) > 0).length
+  const toReviewCount = docs.filter((d) => !d.reviewed).length
+
   return (
     <div className="space-y-2">
-      {docs.map((d) => (
-        <div key={d.id} className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
-          <div className="min-w-0">
-            <p className="truncate text-[13px] text-ink">{d.subject ?? DOC_TYPE_LABELS[d.doc_type]}</p>
-            <p className="truncate font-mono text-[11px] text-ink-soft">
-              {d.received_at} · {DOC_TYPE_LABELS[d.doc_type]} · {d.from_addr ?? '—'}
-            </p>
+      {/* Queue header: separates "already in your ledger, nothing to do" from
+          "needs your review" (docs/phases/PHASE-12 item 1e). */}
+      <p className="font-mono text-[11px] text-ink-soft">
+        {autoCount > 0 && <span className="text-olive">{autoCount} added to your ledger automatically</span>}
+        {autoCount > 0 && toReviewCount > 0 && ' · '}
+        {toReviewCount > 0 && <span>{toReviewCount} to review</span>}
+        {autoCount === 0 && toReviewCount === 0 && 'All documents reviewed'}
+      </p>
+      {docs.map((d) => {
+        const inLedger = (d.ledger_entry_count ?? 0) > 0
+        return (
+          <div key={d.id} className="flex items-center justify-between gap-3 rounded-md border border-line p-3">
+            <div className="min-w-0">
+              <p className="truncate text-[13px] text-ink">{d.subject ?? DOC_TYPE_LABELS[d.doc_type]}</p>
+              <p className="truncate font-mono text-[11px] text-ink-soft">
+                {d.received_at} · {DOC_TYPE_LABELS[d.doc_type]} · {d.from_addr ?? '—'}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className={MONEY_CLASS}>{d.amount_minor === null ? '—' : formatMinor(d.amount_minor)}</span>
+              {inLedger ? (
+                // Auto-processed: parsed straight into the ledger, nothing to do.
+                // Read-only calm state, not an action toggle.
+                <span
+                  title={`${d.ledger_entry_count} ledger ${d.ledger_entry_count === 1 ? 'entry' : 'entries'} from this statement`}
+                  className="rounded-full bg-olive/15 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-olive"
+                >
+                  in ledger
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => review(d)}
+                  className={`min-h-11 rounded-full px-2.5 font-mono text-[10px] uppercase tracking-[0.08em] ${
+                    d.reviewed ? 'bg-olive/15 text-olive' : 'bg-oat text-ink-mid'
+                  }`}
+                >
+                  {d.reviewed ? 'reviewed' : 'review'}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <span className={MONEY_CLASS}>{d.amount_minor === null ? '—' : formatMinor(d.amount_minor)}</span>
-            <button
-              type="button"
-              onClick={() => review(d)}
-              className={`rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.08em] ${
-                d.reviewed ? 'bg-olive/15 text-olive' : 'bg-oat text-ink-mid'
-              }`}
-            >
-              {d.reviewed ? 'reviewed' : 'review'}
-            </button>
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

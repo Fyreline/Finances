@@ -13,9 +13,10 @@ provider sync exists.
 """
 from __future__ import annotations
 
+import calendar
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -228,8 +229,22 @@ def _avg_over(month_map: dict[str, int], months: list[str]) -> int:
     return round(sum(month_map.get(m, 0) for m in months) / len(months)) if months else 0
 
 
-def month_summary_payload(session: Session, user_id: int, month: str) -> dict:
-    """docs/API.md §6b GET /api/summary/month/{yyyy-mm}."""
+def month_summary_payload(
+    session: Session, user_id: int, month: str, *, period_mode: str = "calendar"
+) -> dict:
+    """docs/API.md §6b GET /api/summary/month/{yyyy-mm}.
+
+    ``period_mode`` (docs/phases/PHASE-12-rental-automation.md §5b) bounds the
+    breakdown either by the calendar month (default — behaviour unchanged from
+    before Phase 12, so any caller that never touches the toggle is unaffected)
+    or by the current payday-to-payday window. Payday mode reuses Phase 11's
+    `resolve_period()` — the *same* window `safe_to_spend` uses for "today" — so
+    the two surfaces can never disagree about what "this period" means. The
+    response always states which mode produced it and the exact window it
+    covers (mirrors Phase 11's `payday_source` provenance)."""
+    if period_mode == "payday":
+        return _payday_month_summary_payload(session, user_id, _today_str())
+
     maps = _spend_maps(session, user_id)
     this3 = [_shift_month(month, d) for d in (-2, -1, 0)]
 
@@ -251,9 +266,117 @@ def month_summary_payload(session: Session, user_id: int, month: str) -> dict:
             )
         )
 
-    return insights.month_summary(
+    payload = insights.month_summary(
         month=month, income_minor=maps.income.get(month, 0), categories=category_inputs
     )
+    y, m = int(month[:4]), int(month[5:7])
+    last_day = calendar.monthrange(y, m)[1]
+    payload["period_mode"] = "calendar"
+    payload["period"] = {"start": f"{month}-01", "end": f"{month}-{last_day:02d}"}
+    payload["payday_source"] = None
+    payload["setup_missing"] = []
+    return payload
+
+
+def _load_spend_rows(session: Session, user_id: int) -> list[tuple[date, int, Category | None]]:
+    """All non-excluded transactions as (local date, signed pence, category) —
+    loaded once so an arbitrary-window aggregation (payday mode) doesn't re-query
+    per window."""
+    cats = {c.id: c for c in session.scalars(select(Category)).all()}
+    rows = session.scalars(
+        select(Transaction).join(Account, Transaction.account_id == Account.id).where(Account.user_id == user_id)
+    ).all()
+    out: list[tuple[date, int, Category | None]] = []
+    for t in rows:
+        if t.exclude_from_spending:
+            continue
+        cat = cats.get(t.category_id) if t.category_id else None
+        out.append((datetime.strptime(t.local_date, "%Y-%m-%d").date(), t.amount_minor, cat))
+    return out
+
+
+def _aggregate_window(
+    rows: list[tuple[date, int, Category | None]], start: date, end: date
+) -> tuple[int, dict[str, int], dict[str, tuple[str, int | None]]]:
+    """Income + per-category spend (positive magnitude) over [start, end],
+    using the same income/spend/kind rules as `_spend_maps` so calendar and
+    payday framings agree on what counts as spend."""
+    income = 0
+    by_cat: dict[str, int] = {}
+    labels: dict[str, tuple[str, int | None]] = {}
+    for d, amt, cat in rows:
+        if not (start <= d <= end):
+            continue
+        kind = cat.kind if cat else None
+        if amt > 0 and kind != "transfer":
+            income += amt
+        elif amt < 0 and kind in ("fixed", "discretionary") and cat is not None:
+            by_cat[cat.key] = by_cat.get(cat.key, 0) + (-amt)
+            labels[cat.key] = (cat.label, cat.viz_slot)
+    return income, by_cat, labels
+
+
+def _payday_month_summary_payload(session: Session, user_id: int, today: str) -> dict:
+    """Payday-to-payday breakdown, bounded by the exact `resolve_period()`
+    window `safe_to_spend` uses for today (docs/phases/PHASE-12 §5b). Degrades
+    to a `setup_missing` payload — not a crash, not a silent calendar fallback —
+    when no payday period can be resolved yet (still in setup)."""
+    config = _financial_config_like(session, user_id)
+    detected = _detect_income_anchor(session, user_id, today)
+    payday_source = (
+        "manual" if config.payday_day is not None else ("detected" if detected is not None else None)
+    )
+    period = insights.resolve_period(config, today, detected)
+    if period is None:
+        payload = insights.month_summary(month=today[:7], income_minor=0, categories=[])
+        payload["period_mode"] = "payday"
+        payload["period"] = {"start": None, "end": None}
+        payload["payday_source"] = payday_source
+        payload["setup_missing"] = ["payday_day"]
+        return payload
+
+    start, end = period
+    rows = _load_spend_rows(session, user_id)
+    window_len = (end - start).days + 1
+    # Precompute the current window (k=0) and the five preceding equal-length
+    # windows so the trailing-3 averages are apples-to-apples with the current
+    # window (same length), mirroring calendar mode's this-3-months / prev-3.
+    win_aggs: dict[int, tuple[int, dict[str, int], dict[str, tuple[str, int | None]]]] = {}
+    for k in range(6):
+        s = start - timedelta(days=k * window_len)
+        e = end - timedelta(days=k * window_len)
+        win_aggs[k] = _aggregate_window(rows, s, e)
+
+    labels_all: dict[str, tuple[str, int | None]] = {}
+    for k in range(6):
+        labels_all.update(win_aggs[k][2])
+    candidate_keys: set[str] = set()
+    for k in (0, 1, 2):
+        candidate_keys |= set(win_aggs[k][1].keys())
+
+    category_inputs: list[insights.CategoryMonthInput] = []
+    for key in candidate_keys:
+        this_w = win_aggs[0][1].get(key, 0)
+        avg3 = round(sum(win_aggs[k][1].get(key, 0) for k in (0, 1, 2)) / 3)
+        prev3 = round(sum(win_aggs[k][1].get(key, 0) for k in (3, 4, 5)) / 3)
+        if this_w == 0 and avg3 == 0:
+            continue
+        label, viz_slot = labels_all.get(key, (key, None))
+        category_inputs.append(
+            insights.CategoryMonthInput(
+                key=key, label=label, viz_slot=viz_slot,
+                spend_minor=this_w, avg_3mo_minor=avg3, prev_avg_3mo_minor=prev3,
+            )
+        )
+
+    payload = insights.month_summary(
+        month=start.strftime("%Y-%m"), income_minor=win_aggs[0][0], categories=category_inputs
+    )
+    payload["period_mode"] = "payday"
+    payload["period"] = {"start": start.strftime("%Y-%m-%d"), "end": end.strftime("%Y-%m-%d")}
+    payload["payday_source"] = payday_source
+    payload["setup_missing"] = []
+    return payload
 
 
 # ===================================================================== safe-to-spend

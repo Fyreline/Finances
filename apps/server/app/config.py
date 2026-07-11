@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     # only in a local gitignored `.env` (docs/PRIVATE.md redaction scheme).
     gmail_senders: str = ""
     gmail_search_days: int = 400
+    # The letting agent's statement sender DOMAIN (e.g. "agent.example.com") —
+    # the identifying half of the confirmed-rent-statement gate (docs/phases/
+    # PHASE-12-rental-automation.md item 1a). Deliberately config, not a magic
+    # string in code, and empty by default so the real domain lives only in a
+    # local gitignored `.env` (docs/PRIVATE.md redaction scheme). Absent, the
+    # `"Monthly Rental Statement "` subject-prefix arm of the gate is used alone,
+    # which already matches the real statements — the domain arm only adds
+    # robustness for agent correspondence whose subject differs.
+    rent_statement_sender_domain: str = ""
 
     # --- Goal seeding (docs/phases/PHASE-3-t212-goals.md item 4, docs/
     # PRIVATE.md's redaction scheme). These are personal-finance *values*,

@@ -26,3 +26,12 @@ respx>=0.21
 # are installed — tests inject a fake Gmail service and never touch Google.
 google-api-python-client>=2.100
 google-auth-oauthlib>=1.2
+
+# PDF text extraction for the letting-agent monthly-statement parser
+# (docs/phases/PHASE-12-rental-automation.md item 1b). Chosen over pypdf/PyMuPDF
+# for its layout-aware text + table extraction, which the real statement's
+# multi-column summary block needs; MIT-licensed, pure-Python-friendly.
+# Imported lazily (app/rent_statement_ingest.py) exactly like the Google client,
+# so the test suite runs green whether or not it is installed — the auto-ledger
+# path degrades to leaving the document for manual review when it is absent.
+pdfplumber>=0.11

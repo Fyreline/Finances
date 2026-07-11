@@ -34,6 +34,7 @@ from .config import PROJECT_ROOT, Settings
 from .dates import tax_year_of, to_local_date
 from .integrations.gmail import GmailClient, GmailUnavailable, NotConfigured
 from .models import SyncRun, TaxDocument, TaxYear
+from .rent_statement_ingest import auto_ledger_from_document, is_confirmed_rent_statement
 from .tax_years import ensure_tax_year
 
 logger = logging.getLogger(__name__)
@@ -77,11 +78,22 @@ def build_query(letting_agent: str | None, senders: list[str], *, days: int = 40
     return f"(from:({senders_expr}) OR subject:({subject})) newer_than:{days}d"
 
 
-def classify_doc_type(from_addr: str | None, subject: str | None) -> str:
+def classify_doc_type(from_addr: str | None, subject: str | None, *, agent_domain: str | None = None) -> str:
     """Classify into the ``tax_documents.doc_type`` taxonomy (DATA_MODEL §6) by
     sender + subject keywords. Conservative — anything unrecognised (including
     HMRC/accountant correspondence, which has no dedicated type) is ``other``,
-    for a human to confirm on the review queue."""
+    for a human to confirm on the review queue.
+
+    ``rent_statement`` is assigned ONLY to a *confirmed* letting-agent statement
+    (`is_confirmed_rent_statement`: the exact subject prefix or the configured
+    agent domain), never a fuzzy "rent"/"statement"/"tenancy" keyword match
+    (docs/phases/PHASE-12-rental-automation.md item 1a) — that broad rule is
+    exactly what wrongly swept bank/energy/broker "statement" emails into the
+    rent-statement review queue. A genuine statement takes priority over the
+    other keyword rules so it is never mistyped as, say, an agent_invoice."""
+    if is_confirmed_rent_statement(from_addr, subject, agent_domain=agent_domain):
+        return "rent_statement"
+
     haystack = f"{from_addr or ''} {subject or ''}".lower()
 
     def has(*words: str) -> bool:
@@ -97,9 +109,7 @@ def classify_doc_type(from_addr: str | None, subject: str | None) -> str:
         return "repair_invoice"
     if has("invoice", "fee", "commission"):
         return "agent_invoice"
-    if has("rent", "statement", "tenancy"):
-        return "rent_statement"
-    return "other"  # HMRC SA correspondence, accountant emails, anything else
+    return "other"  # HMRC SA correspondence, bank/energy statements, anything else
 
 
 def parse_amount_minor(text: str) -> tuple[int | None, str]:
@@ -200,6 +210,7 @@ def pull_rental_emails(
 
     senders = [s for s in (settings.gmail_senders or "").split(",") if s.strip()]
     query = build_query(letting_agent, senders, days=settings.gmail_search_days)
+    agent_domain = getattr(settings, "rent_statement_sender_domain", "") or None
 
     def _terminal_run(status: str, detail: str | None, new_docs: int = 0) -> SyncRun:
         run = SyncRun(
@@ -253,7 +264,7 @@ def pull_rental_emails(
             tax_year = tax_year_of(local_date)
             ensure_tax_year(session, tax_year)
 
-            doc_type = classify_doc_type(from_addr, subject)
+            doc_type = classify_doc_type(from_addr, subject, agent_domain=agent_domain)
             body_text, attachments = _walk_parts(payload)
             amount_minor, confidence = parse_amount_minor(f"{subject or ''}\n{body_text}")
 
@@ -270,25 +281,35 @@ def pull_rental_emails(
                 except GmailUnavailable as exc:  # one bad attachment shouldn't sink the pull
                     logger.warning("gmail_pull: attachment fetch failed: %s", exc)
 
-            session.add(
-                TaxDocument(
-                    tax_year=tax_year,
-                    source="gmail",
-                    gmail_message_id=ref.message_id,
-                    doc_type=doc_type,
-                    received_at=local_date,
-                    from_addr=from_addr,
-                    subject=subject,
-                    file_path=str(folder.relative_to(docs_root.parent))
-                    if docs_root.parent in folder.parents
-                    else str(folder),
-                    amount_minor=amount_minor,
-                    amount_confidence=confidence,
-                    reviewed=0,
-                )
+            doc_row = TaxDocument(
+                tax_year=tax_year,
+                source="gmail",
+                gmail_message_id=ref.message_id,
+                doc_type=doc_type,
+                received_at=local_date,
+                from_addr=from_addr,
+                subject=subject,
+                file_path=str(folder.relative_to(docs_root.parent))
+                if docs_root.parent in folder.parents
+                else str(folder),
+                amount_minor=amount_minor,
+                amount_confidence=confidence,
+                reviewed=0,
             )
+            session.add(doc_row)
             session.commit()
             new_docs += 1
+
+            # Fresh confirmed statements get auto-parsed into ledger rows on
+            # the way in (docs/phases/PHASE-12 item 1d), exactly the same path
+            # the one-off backfill uses. Best-effort and self-contained: a parse
+            # failure leaves the doc in the review queue (reviewed=0), it never
+            # sinks the pull — the whole pipeline "never raises".
+            if is_confirmed_rent_statement(from_addr, subject, agent_domain=agent_domain):
+                try:
+                    auto_ledger_from_document(session, doc_row, folder=folder, agent_domain=agent_domain)
+                except Exception as exc:  # noqa: BLE001 — a bad PDF must not sink the pull
+                    logger.warning("gmail_pull: auto-ledger failed for %s: %s", ref.message_id, exc)
 
         return _terminal_run("ok", None, new_docs)
     except GmailUnavailable as exc:
