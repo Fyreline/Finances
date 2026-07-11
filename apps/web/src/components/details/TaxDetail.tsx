@@ -21,7 +21,6 @@ function currentTaxYear(now = new Date()): string {
   const startYear = m > 4 || (m === 4 && d >= 6) ? now.getFullYear() : now.getFullYear() - 1
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
 }
-const TAX_YEAR = currentTaxYear()
 
 type Tab = 'documents' | 'ledger' | 'estimate'
 const TABS: { key: Tab; label: string }[] = [
@@ -454,19 +453,20 @@ function MissingInputsCard({ missing }: { missing: string[] }) {
 }
 
 // ---------------------------------------------------------------- Documents
-function DocumentsPanel() {
+function DocumentsPanel({ year }: { year: string }) {
   const [docs, setDocs] = useState<TaxDocument[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     setError(null)
-    api.taxDocuments(TAX_YEAR).then(
+    setDocs(null) // clear stale rows immediately on a year switch, not just on error
+    api.taxDocuments(year).then(
       (r) => setDocs(r.documents),
       (e: unknown) => {
         setDocs(null)
         setError(e instanceof Error ? e.message : "Couldn't load documents")
       },
     )
-  }, [])
+  }, [year])
   useEffect(load, [load])
 
   const review = async (d: TaxDocument) => {
@@ -488,8 +488,8 @@ function DocumentsPanel() {
   if (docs.length === 0)
     return (
       <p className="font-serif text-base text-ink-mid">
-        No rental documents pulled yet. Once Gmail is connected, statements, certificates and invoices land here for
-        review before anything reaches the ledger.
+        No rental documents for {year} yet. Once Gmail is connected, statements, certificates and invoices land here
+        for review before anything reaches the ledger.
       </p>
     )
 
@@ -550,7 +550,7 @@ function DocumentsPanel() {
 }
 
 // ------------------------------------------------------------------- Ledger
-function LedgerPanel() {
+function LedgerPanel({ year }: { year: string }) {
   const [entries, setEntries] = useState<LedgerEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<{ local_date: string; kind: 'income' | 'expense'; expense_type: string; amount: string }>(
@@ -558,20 +558,21 @@ function LedgerPanel() {
   )
   const load = useCallback(() => {
     setError(null)
-    api.taxLedger(TAX_YEAR).then(
+    setEntries(null) // clear stale rows immediately on a year switch, not just on error
+    api.taxLedger(year).then(
       (r) => setEntries(r.entries),
       (e: unknown) => {
         setEntries(null)
         setError(e instanceof Error ? e.message : "Couldn't load the ledger")
       },
     )
-  }, [])
+  }, [year])
   useEffect(load, [load])
 
   const add = async () => {
     if (!form.local_date || form.amount === '') return
     const body: LedgerBody = {
-      tax_year: TAX_YEAR,
+      tax_year: year,
       local_date: form.local_date,
       kind: form.kind,
       amount_minor: Math.round(parseFloat(form.amount) * 100),
@@ -657,7 +658,7 @@ function LedgerPanel() {
           Add
         </button>
         <a
-          href={api.taxLedgerCsvUrl(TAX_YEAR)}
+          href={api.taxLedgerCsvUrl(year)}
           className="ml-auto font-mono text-[11px] text-clay underline"
         >
           Export CSV
@@ -715,6 +716,13 @@ function LedgerGroup({
 // -------------------------------------------------------------------- Shell
 export function TaxDetail() {
   const [tab, setTab] = useTabHash('estimate')
+  // docs/phases/PHASE-13-rental-history-and-safe-to-spend-fix.md item A: a
+  // previous tax year's ledger/estimate is now viewable, not just the current
+  // one. `years` comes from the server (only years with real content, per
+  // `GET /api/tax/years`); the locally-computed current year is the initial
+  // guess so the panel never sits blank while that fetch is in flight.
+  const [years, setYears] = useState<string[] | null>(null)
+  const [year, setYear] = useState<string>(currentTaxYear())
   const [summary, setSummary] = useState<TaxSummary | null>(null)
   const [config, setConfig] = useState<TaxConfig | null>(null)
   // A failed fetch used to fall back to `null`, which the estimate tab reads
@@ -722,23 +730,54 @@ export function TaxDetail() {
   // error (docs/phases/PHASE-10-post-launch-fixes.md item 3's audit).
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    api.taxYears().then(
+      (r) => {
+        setYears(r.years)
+        // A brand-new install's locally-computed guess may not (yet) be a year
+        // the server has anything for — defer to the server's own notion of
+        // "current" rather than showing an empty state for a year mismatch.
+        setYear((prev) => (r.years.includes(prev) ? prev : r.current_tax_year))
+      },
+      () => setYears(null),
+    )
+  }, [])
+
   const load = useCallback(() => {
     setError(null)
     api
-      .taxSummary(TAX_YEAR)
+      .taxSummary(year)
       .then(setSummary, (e: unknown) => {
         setSummary(null)
         setError(e instanceof Error ? e.message : "Couldn't load tax data")
       })
     api.taxConfig().then((r) => setConfig(r.config), () => setConfig(null))
-  }, [])
+  }, [year])
   useEffect(load, [load])
 
   return (
     <div className="space-y-4">
       {/* The surface states its own window (docs/DESIGN.md §2c.6) — every
           figure below (profit, estimate, ledger) is for this one tax year. */}
-      <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">TAX YEAR {TAX_YEAR}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">Tax year</p>
+        {years && years.length > 1 ? (
+          <select
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            aria-label="Tax year"
+            className="min-h-11 rounded-md border border-line bg-paper px-2 py-1 font-mono text-[12px] text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay/60"
+          >
+            {[...years].reverse().map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="font-mono text-[12px] text-ink">{year}</span>
+        )}
+      </div>
       <TaxDisclaimer />
 
       <div role="tablist" aria-label="Tax views" className="flex gap-1 border-b border-line">
@@ -758,8 +797,8 @@ export function TaxDetail() {
         ))}
       </div>
 
-      {tab === 'documents' && <DocumentsPanel />}
-      {tab === 'ledger' && <LedgerPanel />}
+      {tab === 'documents' && <DocumentsPanel year={year} />}
+      {tab === 'ledger' && <LedgerPanel year={year} />}
       {tab === 'estimate' && (
         <div className="space-y-5">
           {error ? (

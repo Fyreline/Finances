@@ -11,8 +11,13 @@ The algorithm, verbatim from docs/DATA_MODEL.md §3a:
    cluster (so Tesco's variable grocery spend never clusters, a fixed £9.99
    sub does).
 2. **Cadence test** per cluster with ≥3 occurrences: median gap → monthly
-   28–33d / weekly 6–8 / quarterly 85–97 / annual 350–380; and no gap may
-   exceed 1.6× the median.
+   27–36d / weekly 6–8 / quarterly 85–97 / annual 350–380; and a *bounded*
+   number of outlier gaps (any single gap > 1.6× the median) may be set aside
+   before classifying — a holiday-shifted payday or one delayed payment no
+   longer vetoes an otherwise-overwhelmingly-consistent cluster (docs/phases/
+   PHASE-13-rental-history-and-safe-to-spend-fix.md item D; the original rule
+   discarded a real 25-occurrence monthly salary because one Christmas gap
+   tripped it).
 3. **Confidence** = 0.4·min(occ,6)/6 + 0.3·(1 − gap_variance_norm) +
    0.3·(1 − amount_spread_norm), floored at 0.35.
 4. **Cancel-candidate flag** (advisory only): category ∈ {subscriptions, fun,
@@ -34,7 +39,12 @@ _DATE_FMT = "%Y-%m-%d"
 # median-gap windows per cadence (docs/DATA_MODEL.md §3a.2)
 CADENCE_WINDOWS: dict[str, tuple[int, int]] = {
     "weekly": (6, 8),
-    "monthly": (28, 33),
+    # Widened from (28, 33) → (27, 36) for a weekday-anchored payday (docs/phases/
+    # PHASE-13 item D.1): "last Friday of the month" alternates naturally between
+    # 28-day (4-week) and 35-day (5-week) calendar gaps — both are the same
+    # monthly cadence, not anomalies. Still disjoint from weekly (≤8) and
+    # quarterly (≥85), so nothing else can be mislabelled monthly.
+    "monthly": (27, 36),
     "quarterly": (85, 97),
     "annual": (350, 380),
 }
@@ -42,7 +52,14 @@ CADENCE_WINDOWS: dict[str, tuple[int, int]] = {
 _CADENCE_DAYS: dict[str, int] = {"weekly": 7, "monthly": 30, "quarterly": 91, "annual": 365}
 _CADENCE_MONTHS: dict[str, int] = {"monthly": 1, "quarterly": 3, "annual": 12}
 
-_MAX_GAP_TOLERANCE = 1.6  # "no gap may exceed 1.6× the median"
+_MAX_GAP_TOLERANCE = 1.6  # a single gap > 1.6× the median is an "outlier" beat
+# How many outlier gaps a cluster may tolerate before it's judged genuinely
+# irregular: `len(gaps) // _OUTLIER_GAP_DIVISOR` (integer floor). A short cluster
+# (≤7 gaps) tolerates NONE — a single missed month in a 3-gap cluster is still
+# rejected, preserving the original safety against false positives — while a
+# long, dense cluster (a real salary's ~25 monthly gaps) survives one or two
+# holiday-shifted beats (docs/phases/PHASE-13 item D.2).
+_OUTLIER_GAP_DIVISOR = 8
 _MIN_OCCURRENCES = 3
 _CONFIDENCE_FLOOR = 0.35  # "floor at 0.35 to surface at all"
 _AMOUNT_TOLERANCE_PCT = 0.12
@@ -164,15 +181,33 @@ def cluster_by_amount(txns: list[TxnLike]) -> list[list[TxnLike]]:
 
 
 def cadence_for_gaps(gaps: list[int]) -> str | None:
-    """Median gap → cadence name, or None if the median is in no window or
-    any single gap exceeds 1.6× the median (docs/DATA_MODEL.md §3a.2)."""
+    """Median gap → cadence name, or None if no window fits or the cluster is
+    genuinely irregular (docs/DATA_MODEL.md §3a.2, revised docs/phases/PHASE-13
+    item D).
+
+    Outlier handling: a gap greater than 1.6× the median is a missed/holiday-
+    shifted beat. A *bounded* number of these (``len(gaps) // 8``, floor) is set
+    aside and the cadence classified on the median of what remains — so a couple
+    of real irregular gaps can't veto an otherwise-consistent pattern. If the
+    outliers exceed that allowance, or too few regular gaps survive to trust a
+    cadence, the cluster is rejected (unchanged behaviour for short/irregular
+    clusters — the safety against false-positive "recurring" transfers is kept,
+    just narrowed)."""
     if not gaps:
         return None
     med = median(gaps)
     if med <= 0:
         return None
-    if any(g > _MAX_GAP_TOLERANCE * med for g in gaps):
+    outliers = [g for g in gaps if g > _MAX_GAP_TOLERANCE * med]
+    if len(outliers) > len(gaps) // _OUTLIER_GAP_DIVISOR:
         return None
+    if outliers:
+        kept = [g for g in gaps if g <= _MAX_GAP_TOLERANCE * med]
+        if len(kept) < 2:  # too little regular evidence left to trust a cadence
+            return None
+        med = median(kept)
+        if med <= 0:
+            return None
     for name, (lo, hi) in CADENCE_WINDOWS.items():
         if lo <= med <= hi:
             return name

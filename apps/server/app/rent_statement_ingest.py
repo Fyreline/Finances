@@ -128,6 +128,7 @@ class AutoLedgerResult:
 # outcome values
 LEDGERED = "ledgered"  # confident parse → income + expense rows created, reviewed=1
 ALREADY_LEDGERED = "already_ledgered"  # rows already linked to this doc — idempotent no-op
+TOPPED_UP = "topped_up"  # already-ledgered doc gained newly-parsed property-cost rows
 NOT_CONFIRMED = "not_confirmed"  # failed is_confirmed_rent_statement — nothing done
 NO_PDF = "no_pdf"  # no statement PDF found in the folder
 NO_TEXT = "no_text"  # PDF unreadable / library missing
@@ -156,18 +157,16 @@ def auto_ledger_from_document(
         select(func.count()).select_from(RentalLedgerEntry).where(RentalLedgerEntry.tax_document_id == doc.id)
     )
     if existing:
-        return AutoLedgerResult(doc.id, ALREADY_LEDGERED, detail=f"{existing} row(s) already linked")
+        # Already ledgered by Phase 12 (income + agent_fees) — but it may predate
+        # the Property Costs Summary parser, so additively add any missing
+        # repairs rows without re-creating the income/agent_fees pair (docs/
+        # phases/PHASE-13 item C). Idempotent; safe to re-run.
+        return _topup_property_costs(session, doc, folder=folder, docs_root=docs_root)
 
-    folder = folder or resolve_document_folder(doc, docs_root)
-    pdf = find_statement_pdf(folder)
-    if pdf is None:
-        return AutoLedgerResult(doc.id, NO_PDF)
-
-    text = extract_pdf_text(pdf)
-    if text is None:
-        return AutoLedgerResult(doc.id, NO_TEXT)
-
-    parsed = parse_statement_text(text)
+    parsed, failure = _parse_document(doc, folder=folder, docs_root=docs_root)
+    if failure is not None:
+        return AutoLedgerResult(doc.id, failure)
+    assert parsed is not None  # guaranteed by `_parse_document`'s contract when failure is None
     if not parsed.confident:
         # Partial parse: surface the gross rent it *did* find as a review hint
         # (populate what it found, leave the rest for a human — docs/phases/
@@ -190,13 +189,101 @@ def auto_ledger_from_document(
     return AutoLedgerResult(doc.id, LEDGERED, created_rows=created, period_label=parsed.period_label)
 
 
+def _parse_document(
+    doc: TaxDocument, *, folder: Path | None = None, docs_root: Path | None = None
+) -> tuple[ParsedStatement | None, str | None]:
+    """Resolve the document's folder, find its statement PDF, extract text, and
+    parse it. Returns ``(parsed, None)`` on success or ``(None, outcome)`` for
+    the two ways this can fail before parsing even starts (docs/phases/
+    PHASE-12 item 1b) — shared by the first-time ledger path and the item-C
+    top-up path so neither re-implements PDF discovery."""
+    resolved_folder = folder or resolve_document_folder(doc, docs_root)
+    pdf = find_statement_pdf(resolved_folder)
+    if pdf is None:
+        return None, NO_PDF
+    text = extract_pdf_text(pdf)
+    if text is None:
+        return None, NO_TEXT
+    return parse_statement_text(text), None
+
+
+def _existing_ledger_expense_types(session: Session, doc: TaxDocument) -> set[str | None]:
+    return set(
+        session.scalars(
+            select(RentalLedgerEntry.expense_type).where(
+                RentalLedgerEntry.tax_document_id == doc.id, RentalLedgerEntry.kind == "expense"
+            )
+        ).all()
+    )
+
+
+def _topup_property_costs(
+    session: Session, doc: TaxDocument, *, folder: Path | None = None, docs_root: Path | None = None
+) -> AutoLedgerResult:
+    """For a document already ledgered (Phase 12's income + agent_fees pair),
+    additively create a ``repairs`` row for the Property Costs Summary section's
+    itemised deductions (docs/phases/PHASE-13 item C) if the parser now finds
+    ones that weren't captured the first time round — without touching or
+    duplicating the existing income/agent_fees rows. Idempotent per document: a
+    ``repairs`` row already present means this document has already been topped
+    up (or was ledgered fresh with costs included), so a re-run is a no-op."""
+    existing_count = session.scalar(
+        select(func.count()).select_from(RentalLedgerEntry).where(RentalLedgerEntry.tax_document_id == doc.id)
+    ) or 0
+    if "repairs" in _existing_ledger_expense_types(session, doc):
+        return AutoLedgerResult(doc.id, ALREADY_LEDGERED, detail=f"{existing_count} row(s) already linked")
+
+    parsed, failure = _parse_document(doc, folder=folder, docs_root=docs_root)
+    if failure is not None or parsed is None:
+        return AutoLedgerResult(doc.id, ALREADY_LEDGERED, detail=f"{existing_count} row(s) already linked")
+
+    costs = parsed.repairs_rows()
+    if not costs:
+        return AutoLedgerResult(doc.id, ALREADY_LEDGERED, detail=f"{existing_count} row(s) already linked")
+
+    # Anchor the top-up row to this document's existing income-row date so it
+    # lands in the same tax year the doc was originally ledgered under, rather
+    # than re-deriving from a fresh (possibly differently-formatted) re-parse.
+    anchor_date = session.scalar(
+        select(RentalLedgerEntry.local_date)
+        .where(RentalLedgerEntry.tax_document_id == doc.id, RentalLedgerEntry.kind == "income")
+        .limit(1)
+    )
+    if anchor_date is None:
+        assert parsed.period_year is not None and parsed.period_month is not None
+        anchor_date = f"{parsed.period_year:04d}-{parsed.period_month:02d}-15"
+    tax_year = tax_year_of(anchor_date)
+    ensure_tax_year(session, tax_year)
+    label = parsed.period_label or anchor_date
+
+    total = sum(c.amount_minor for c in costs)
+    descriptions = "; ".join(c.description for c in costs)
+    session.add(
+        RentalLedgerEntry(
+            tax_year=tax_year,
+            local_date=anchor_date,
+            kind="expense",
+            expense_type="repairs",
+            amount_minor=total,
+            source="document",
+            tax_document_id=doc.id,
+            notes=f"Auto-parsed property costs (top-up) — {label} ({descriptions})",
+        )
+    )
+    session.commit()
+    return AutoLedgerResult(doc.id, TOPPED_UP, created_rows=1, period_label=parsed.period_label)
+
+
 def _write_ledger_rows(session: Session, doc: TaxDocument, parsed: ParsedStatement) -> int:
-    """Create one income row (rent) + one agent_fees expense row (+ a repairs
-    row when present) for a confidently-parsed statement. Amounts are positive
-    pence; ``kind``/``expense_type`` carry the sign semantics (DATA_MODEL §6).
-    The ledger date is the statement's *covered period* (mid-month), not the
-    email's received date, so amounts land in the right SA year even when the
-    two differ by a few days around month-end (docs/phases/PHASE-12 item 1c)."""
+    """Create one income row (rent) + one agent_fees expense row (+ one
+    combined ``repairs`` row for the Property Costs Summary section's itemised
+    lines, if any — docs/phases/PHASE-13 item C, falling back to the legacy
+    single landlord-direct line for a statement with no costs section) for a
+    confidently-parsed statement. Amounts are positive pence; ``kind``/
+    ``expense_type`` carry the sign semantics (DATA_MODEL §6). The ledger date
+    is the statement's *covered period* (mid-month), not the email's received
+    date, so amounts land in the right SA year even when the two differ by a
+    few days around month-end (docs/phases/PHASE-12 item 1c)."""
     assert parsed.period_year is not None and parsed.period_month is not None
     local_date = f"{parsed.period_year:04d}-{parsed.period_month:02d}-15"
     tax_year = tax_year_of(local_date)
@@ -225,17 +312,21 @@ def _write_ledger_rows(session: Session, doc: TaxDocument, parsed: ParsedStateme
             notes=f"Auto-parsed agent commission + VAT — {label}",
         ),
     ]
-    if parsed.repairs_minor:  # present and non-zero only
+    costs = parsed.repairs_rows()  # itemised Property Costs Summary lines, or the
+    #                                legacy single landlord-direct line as fallback
+    if costs:
+        total = sum(c.amount_minor for c in costs)
+        descriptions = "; ".join(c.description for c in costs)
         rows.append(
             RentalLedgerEntry(
                 tax_year=tax_year,
                 local_date=local_date,
                 kind="expense",
                 expense_type="repairs",
-                amount_minor=parsed.repairs_minor,
+                amount_minor=total,
                 source="document",
                 tax_document_id=doc.id,
-                notes=f"Auto-parsed landlord-direct repairs — {label}",
+                notes=f"Auto-parsed property costs — {label} ({descriptions})",
             )
         )
     session.add_all(rows)

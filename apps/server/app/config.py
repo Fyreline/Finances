@@ -97,7 +97,18 @@ class Settings(BaseSettings):
     # scanning the whole mailbox on subject keywords alone. Real addresses live
     # only in a local gitignored `.env` (docs/PRIVATE.md redaction scheme).
     gmail_senders: str = ""
-    gmail_search_days: int = 400
+    # Widened docs/phases/PHASE-13-rental-history-and-safe-to-spend-fix.md item A:
+    # the old 400-day (~13 month) default meant only the most recent tax year's
+    # rent statements were ever pulled, even though both the salary history and
+    # the rental tenancy predate that window by a couple of years. Rather than
+    # hardcode a number derived from the real tenancy-start date (docs/PRIVATE.md
+    # redaction scheme — no real dates in committed source), this is simply made
+    # comfortably generous (~4.6 years) — enough margin for any plausible tenancy/
+    # employment start without needing to know either exactly. Deliberately kept
+    # as the standing default rather than a separate one-off value: a wider
+    # window costs nothing extra on a re-run (dedup is on `gmail_message_id`), so
+    # there is no need for the regular weekly pull to use a narrower number.
+    gmail_search_days: int = 1700
     # The letting agent's statement sender DOMAIN (e.g. "agent.example.com") —
     # the identifying half of the confirmed-rent-statement gate (docs/phases/
     # PHASE-12-rental-automation.md item 1a). Deliberately config, not a magic

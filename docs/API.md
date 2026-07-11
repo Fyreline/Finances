@@ -328,6 +328,13 @@ GET  /api/tax/config · PUT /api/tax/config        # the HANDOFF open-question i
                                     # annual_mortgage_interest_minor when the certificate figure is
                                     # unknown — balance is OUTSTANDING, not the original loan; the
                                     # certificate figure always wins when both are set)
+GET  /api/tax/years      → {years: [str], current_tax_year: str}   # Phase 13 item A: which tax
+                                    # years have a document or a ledger entry (filters out years
+                                    # `ensure_tax_year` created for unrelated 'other' mail only,
+                                    # e.g. a wide Gmail pull sweeping years of bank/energy noise);
+                                    # current_tax_year always included even if empty. Feeds the
+                                    # web year-selector so a previous tax year's ledger/estimate
+                                    # is viewable, not just the current one.
 GET  /api/tax/years/{key}/summary → {gross_rents_minor, allowable_expenses:{<type>: minor,...},
                                     profit_minor, estimate: null | {method_used:
                                     "expenses_plus_s24"|"property_allowance",

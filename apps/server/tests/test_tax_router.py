@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.db import SessionLocal
 from app.models import Account, TaxDocument, Transaction
+from app.tax_years import ensure_tax_year
 
 from tests.conftest import auth_headers, make_user  # noqa: F401  (imported for parity/use)
 
@@ -209,6 +210,32 @@ def test_ledger_validation_and_csv_export(authed):
     assert csv_res.status_code == 200 and csv_res.headers["content-type"].startswith("text/csv")
     text = csv_res.text
     assert "amount_gbp" in text and "850.00" in text and "600.00" in text
+
+
+# --------------------------------------------------------------------------- #
+#  Years available (docs/phases/PHASE-13 item A)                              #
+# --------------------------------------------------------------------------- #
+def test_list_tax_years_covers_ledger_and_document_years_plus_current(authed):
+    client, uid, headers = authed
+    # A ledger entry in an EARLIER year than the current one.
+    _add_ledger(client, headers, local_date="2025-06-01", kind="income", amount_minor=85_000)
+    with SessionLocal() as session:
+        # A document-only year (no ledger row) must still surface.
+        ensure_tax_year(session, "2023-24")
+        session.add(
+            TaxDocument(
+                tax_year="2023-24", source="gmail", gmail_message_id="years-test-1", doc_type="other",
+                received_at="2023-10-01", from_addr="noreply@bank.example", subject="Statement",
+                file_path="tax-documents/2023-24/x", amount_minor=None, amount_confidence="none", reviewed=0,
+            )
+        )
+        session.commit()
+
+    body = client.get("/api/tax/years", headers=headers).json()
+    assert "2025-26" in body["years"]  # from the ledger entry
+    assert "2023-24" in body["years"]  # from the document-only year
+    assert body["current_tax_year"] in body["years"]  # current year always present
+    assert body["years"] == sorted(body["years"])  # chronologically sorted
 
 
 def test_delete_ledger_entry(authed):

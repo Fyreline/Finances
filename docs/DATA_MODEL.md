@@ -160,8 +160,24 @@ Runs after every sync over outgoing, non-excluded transactions.
    rises within tolerance surface via `amount_drift_pct` — an inherent
    consequence of this tolerance rule, not a bug.*
 2. **Cadence test** per cluster with ≥3 occurrences: median gap between consecutive
-   dates → monthly if 28–33 days, weekly 6–8, quarterly 85–97, annual 350–380; and no
-   gap may exceed 1.6× the median (one missed month tolerated in 12).
+   dates → monthly if 27–36 days, weekly 6–8, quarterly 85–97, annual 350–380; and a
+   *bounded* number of outlier gaps (any single gap > 1.6× the median) may be set aside
+   before classifying, rather than unconditionally vetoing the whole cluster.
+   > **Correction (Phase 13 item D):** verified against real data as Phase 11's own
+   > doc asked — a genuine, 25-occurrence "last Friday of the month" salary produced
+   > **zero** detections. Root cause, two parts, both fixed: (a) the monthly window was
+   > too narrow for a weekday-anchored payday's natural 28-vs-35-day alternation
+   > (widened 28–33 → 27–36, still disjoint from weekly/quarterly); (b) the outlier rule
+   > discarded the *entire* cluster the moment *any single* gap exceeded 1.6× the
+   > median — one holiday-shifted payday (a short gap paired with a long one around
+   > Christmas/New Year) was enough to veto an otherwise-overwhelming pattern. Now a
+   > cluster may set aside up to `len(gaps) // 8` outlier gaps (floored — a short
+   > cluster, ≤7 gaps, still tolerates none, preserving the original protection against
+   > false-positiving a genuinely irregular transfer) and classify on the median of
+   > what remains. Function-level detail: `engines/recurring.py::cadence_for_gaps`.
+   > Regression-tested both ways: the widened/tolerant logic finds the real salary
+   > shape (synthetic dates/amount), and the 8 already-working outgoing committed-cost
+   > detections are unaffected (same shared function, `direction="out"`).
 3. **Confidence** = `0.4·min(occurrences,6)/6 + 0.3·(1 − gap_variance_norm) +
    0.3·(1 − amount_spread_norm)`, floor at 0.35 to surface at all; the UI orders by it
    and labels < 0.6 as "possibly recurring".
@@ -290,6 +306,13 @@ tax_documents
   gmail_message_id TEXT UNIQUE      -- idempotency for the mail pipeline
   doc_type TEXT NOT NULL            -- 'rent_statement' | 'agent_invoice' | 'mortgage_interest_cert'
                                     -- | 'insurance' | 'repair_invoice' | 'ground_rent' | 'other'
+                                    -- Phase 13 item B: 'other' rows (confirmed non-rental noise —
+                                    -- bank/broker/energy/game-storefront mail Phase 12's classifier
+                                    -- swept in) are now DELETED, not just kept reclassified, by
+                                    -- app/rental_document_cleanup.py — an explicit user request,
+                                    -- irreversible, DB row + on-disk folder together, run only after
+                                    -- a backup. 'insurance'/'mortgage_interest_cert' are never
+                                    -- deleted by that path — different, still-useful paperwork.
   received_at TEXT NOT NULL
   from_addr TEXT
   subject TEXT
@@ -315,7 +338,18 @@ rental_ledger                       -- the SA105-shaped ledger; one row per inco
                                     -- [+ repairs]) for a confirmed, confidently-parsed
                                     -- statement, keyed on tax_document_id for idempotency
                                     -- (app/rent_statement_ingest.py); no schema change — the
-                                    -- rows + their notes are the audit trail
+                                    -- rows + their notes are the audit trail. Phase 13 item C:
+                                    -- the 'repairs' expense_type row is now sourced from the
+                                    -- statement's itemised "Property Costs Summary for Month"
+                                    -- section (0..n free-text `<description> £X.XX` lines,
+                                    -- combined into one row, only when the section reconciles
+                                    -- against the statement's own "Total Costs" figure), falling
+                                    -- back to the legacy single landlord-direct line for older
+                                    -- statements with no costs section; a document Phase 12
+                                    -- already ledgered without a repairs row gets one added
+                                    -- additively on the next backfill run (never re-parsed/
+                                    -- duplicated) — still no schema change, still keyed on
+                                    -- tax_document_id.
   transaction_id INTEGER REFERENCES transactions(id)
   tax_document_id INTEGER REFERENCES tax_documents(id)
   notes TEXT

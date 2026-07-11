@@ -171,6 +171,26 @@ async def put_tax_config(
 
 
 # --------------------------------------------------------------------------- #
+#  Tax years available to view (docs/phases/PHASE-13 item A)                  #
+# --------------------------------------------------------------------------- #
+@router.get("/tax/years")
+async def list_tax_years(user_id: int = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    """Which tax years have anything worth showing — a document or a ledger
+    entry — so the web year-selector (docs/phases/PHASE-13-rental-history-and-
+    safe-to-spend-fix.md item A) only offers years with real content, not every
+    row `ensure_tax_year` has ever created (a wide Gmail pull sweeps years of
+    unrelated 'other' mail too, which shouldn't clutter the selector). Always
+    includes the current tax year, even with nothing in it yet, so a fresh
+    install still has one year to select. Sorted chronologically (``YYYY-YY``
+    keys sort correctly as plain strings within a century)."""
+    doc_years = set(session.scalars(select(TaxDocument.tax_year).distinct()).all())
+    ledger_years = set(session.scalars(select(RentalLedgerEntry.tax_year).distinct()).all())
+    current = tax_year_of(now_london().strftime("%Y-%m-%d"))
+    years = sorted(doc_years | ledger_years | {current})
+    return {"years": years, "current_tax_year": current}
+
+
+# --------------------------------------------------------------------------- #
 #  Year figures + summary/estimate (docs/TAX.md §5, docs/API.md §5)           #
 # --------------------------------------------------------------------------- #
 def _year_figures(session: Session, tax_year: str, is_leasehold: int | None) -> dict:

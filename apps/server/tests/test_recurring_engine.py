@@ -7,6 +7,8 @@ All figures are synthetic placeholders (docs/PRIVATE.md redaction scheme).
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from app.engines.recurring import (
     TxnLike,
     cadence_for_gaps,
@@ -51,6 +53,35 @@ def test_cadence_rejects_gap_over_1_6x_median():
 def test_cadence_tolerates_a_late_but_not_missed_payment():
     # median 30.5, longest gap 47 ≤ 1.6×30.5 = 48.8 → still monthly (one late beat)
     assert cadence_for_gaps([30, 31, 47, 30]) == "monthly"
+
+
+# ------------------------------------------- Phase 13 item D: cadence robustness
+def test_cadence_monthly_window_admits_five_week_gaps():
+    """A weekday-anchored payday alternates 28/35-day calendar gaps; a run of
+    35s (5-week beats) is still monthly under the widened 27–36 window
+    (docs/phases/PHASE-13 item D.1)."""
+    assert cadence_for_gaps([35, 35, 35]) == "monthly"
+    assert cadence_for_gaps([28, 35, 28, 35]) == "monthly"
+    assert cadence_for_gaps([27, 28, 27]) == "monthly"
+
+
+def test_cadence_tolerates_a_bounded_holiday_outlier_in_a_long_cluster():
+    """One holiday-shifted long gap no longer vetoes an otherwise-consistent
+    monthly cluster, PROVIDED the cluster is long enough that one outlier is a
+    small fraction (len//8) of its gaps (docs/phases/PHASE-13 item D.2)."""
+    # 21 gaps of 28 + one 90-day Christmas gap → allowance 22//8 = 2, one
+    # outlier ≤ allowance → still monthly (median of the kept 28s).
+    assert cadence_for_gaps([28] * 21 + [90]) == "monthly"
+
+
+def test_cadence_still_rejects_too_many_outliers_short_cluster_unchanged():
+    """The safety net is narrowed, not removed: a short cluster tolerates NO
+    outlier (a single missed month in a 3-gap cluster is still rejected,
+    exactly as before), and a longer cluster with more outliers than its
+    allowance is still rejected as genuinely irregular."""
+    assert cadence_for_gaps([30, 60, 30]) is None  # 3 gaps, allowance 0, unchanged
+    # 9 gaps, allowance 9//8 = 1, but two 90-day outliers → rejected.
+    assert cadence_for_gaps([28, 28, 28, 90, 28, 28, 90, 28, 28]) is None
 
 
 # --------------------------------------------------------------- clustering
@@ -191,3 +222,81 @@ def test_income_anchor_carries_observed_gaps():
     ]
     detected = detect_recurring(txns, as_of=AS_OF, direction="in")
     assert detected[0].gaps_days == [28, 35]  # 29 May→26 Jun, 26 Jun→31 Jul
+
+
+# --------------------------------- Phase 13 item D: the real safe-to-spend bug
+def _last_friday(year: int, month: int) -> date:
+    nxt = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    d = nxt - timedelta(days=1)
+    while d.weekday() != 4:  # 4 == Friday
+        d -= timedelta(days=1)
+    return d
+
+
+def test_last_friday_payday_with_holiday_gap_is_detected_monthly():
+    """The exact real shape from docs/phases/PHASE-13 item D, with SYNTHETIC
+    dates/amount: a 'last Friday of the month' salary over ~2.5 years, whose
+    calendar gaps alternate 28/35 days, plus one Christmas run paid early in
+    December followed by a long gap into late February (a short-then-long
+    outlier pair). The pre-Phase-13 outlier rule vetoed the whole 30-strong
+    cluster on that one long gap and returned NOTHING — the direct cause of
+    safe-to-spend never auto-detecting the user's income. It must now be found
+    as a single monthly anchor."""
+    months: list[tuple[int, int]] = []
+    y, m = 2023, 11
+    while (y, m) <= (2026, 6):
+        months.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+    dates: list[date] = []
+    for yy, mm in months:
+        if (yy, mm) == (2024, 12):
+            dates.append(date(2024, 12, 6))  # paid early before Christmas
+            continue
+        if (yy, mm) == (2025, 1):
+            continue  # January run skipped → long gap out to late February
+        dates.append(_last_friday(yy, mm))
+
+    txns = [_tx(d.isoformat(), 250000, "ACME PAYROLL") for d in dates]
+    detected = detect_recurring(txns, as_of=AS_OF, direction="in")
+    salary = [d for d in detected if d.typical_amount_minor == 250000]
+    assert len(salary) == 1
+    assert salary[0].cadence == "monthly"
+    assert salary[0].occurrences >= 25  # the whole cluster survives, not zero
+    assert salary[0].confidence >= 0.35  # clears the income-anchor floor
+
+
+def test_eight_outgoing_committed_costs_unaffected_by_the_fix():
+    """Regression guard (docs/phases/PHASE-13 item D.3): loosening the cadence/
+    outlier logic must NOT stop the already-working outgoing committed-cost
+    detections. Eight distinct synthetic outgoing patterns — the shape, not the
+    real user's values — must all still detect at their expected cadence, and
+    nothing spurious appear."""
+
+    def monthly(merchant: str, amount: int, day: int, cat: str) -> list[TxnLike]:
+        return [_tx(f"2026-{mm:02d}-{day:02d}", amount, merchant, cat) for mm in (2, 3, 4, 5, 6)]
+
+    txns: list[TxnLike] = []
+    # Six clean monthly committed costs (fixed + subscriptions/fun).
+    txns += monthly("FLAT SHARE TRANSFER", -16000, 1, "fixed")
+    txns += monthly("BROADBAND CO", -3200, 3, "fixed")
+    txns += monthly("MOBILE NETWORK", -1500, 7, "fixed")
+    txns += monthly("STREAM ONE", -999, 12, "subscriptions")
+    txns += monthly("STREAM TWO", -1099, 18, "subscriptions")
+    txns += monthly("GYM MONTHLY", -2499, 25, "fun")
+    # A weekly committed cost.
+    txns += [_tx(d, -650, "LOCAL CLASS", "fun") for d in ("2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29")]
+    # An annual insurance (three years, synthetic).
+    txns += [_tx(d, -18000, "HOME INSURER") for d in ("2024-06-03", "2025-06-04", "2026-06-02")]
+
+    detected = detect_recurring(txns, as_of=AS_OF, direction="out")
+    by_key = {d.merchant_key: d.cadence for d in detected}
+    assert len(detected) == 8
+    assert by_key["flat share transfer"] == "monthly"
+    assert by_key["broadband co"] == "monthly"
+    assert by_key["mobile network"] == "monthly"
+    assert by_key["stream one"] == "monthly"
+    assert by_key["stream two"] == "monthly"
+    assert by_key["gym monthly"] == "monthly"
+    assert by_key["local class"] == "weekly"
+    assert by_key["home insurer"] == "annual"

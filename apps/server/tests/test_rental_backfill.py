@@ -69,5 +69,45 @@ def test_backfill_ledgers_confirmed_statements_and_is_idempotent(tmp_path, monke
         # Re-run is a no-op.
         res2 = backfill_rental_ledger(session)
         assert res2["ledgered_now"] == 0 and res2["already_ledgered"] == 1
+        assert res2["topped_up"] == 0
         assert res2["ledger_rows_created"] == 0
         assert session.query(RentalLedgerEntry).count() == 2
+
+
+def test_backfill_tops_up_property_costs_on_a_previously_ledgered_document(tmp_path, monkeypatch):
+    """docs/phases/PHASE-13 item C: re-running the backfill against a document
+    already ledgered (income + agent_fees only) picks up a Property Costs
+    Summary deduction the parser now finds and adds it, without duplicating the
+    existing rows."""
+    folder = tmp_path / "stmt"
+    folder.mkdir()
+    (folder / "P0 202510 Monthly Statement.pdf").write_bytes(b"pdf")
+    monkeypatch.setattr(ingest, "extract_pdf_text", lambda path: _SYNTH_STATEMENT)
+    with SessionLocal() as session:
+        seed_tax_years(session)
+        _doc(session, "s1", "rent_statement", "Monthly Rental Statement for A - B (Oct 2025)", "agent@x.com", str(folder))
+        session.commit()
+
+        first = backfill_rental_ledger(session)
+        assert first["ledgered_now"] == 1 and first["ledger_rows_created"] == 2
+
+        with_costs = """\
+Monthly Rental Statement October 2025
+Total Rent: £1,000.00
+Commission: 9.00 % £90.00
+VAT: 20.00 % £18.00
+Total Costs £50.00
+Total Deductons: £158.00
+Net Rent sent to you: £842.00
+Property Costs Summary for Month
+Placeholder Council - General Maintenance £50.00
+Property Factor No
+"""
+        monkeypatch.setattr(ingest, "extract_pdf_text", lambda path: with_costs)
+        second = backfill_rental_ledger(session)
+        assert second["ledgered_now"] == 0
+        assert second["topped_up"] == 1
+        assert second["ledger_rows_created"] == 1
+        assert session.query(RentalLedgerEntry).count() == 3
+        repairs = session.query(RentalLedgerEntry).filter_by(kind="expense", expense_type="repairs").one()
+        assert repairs.amount_minor == 5_000

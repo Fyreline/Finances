@@ -14,7 +14,11 @@ together by `scripts/backfill_rental_automation.py`:
   (mortgage-interest cert, insurance, …) are untouched.
 - `backfill_rental_ledger` — for every already-pulled confirmed statement with
   no ledger rows yet, parse its PDF and create the income + expense rows, fixing
-  the `gross_rents_minor: 0` tax estimate. Idempotent via `auto_ledger_from_document`.
+  the `gross_rents_minor: 0` tax estimate. Idempotent via `auto_ledger_from_document`
+  — including its docs/phases/PHASE-13 item C top-up path, which additively adds
+  a `repairs` row (from the Property Costs Summary section) to a document that
+  Phase 12 already ledgered without one, without touching or duplicating its
+  existing income/agent_fees rows.
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ from .models import TaxDocument
 from .rent_statement_ingest import (
     ALREADY_LEDGERED,
     LEDGERED,
+    TOPPED_UP,
     auto_ledger_from_document,
     is_confirmed_rent_statement,
 )
@@ -64,6 +69,9 @@ def backfill_rental_ledger(session: Session, *, agent_domain: str | None = None,
         "confirmed_statements": len(confirmed),
         "ledgered_now": outcomes.get(LEDGERED, 0),
         "already_ledgered": outcomes.get(ALREADY_LEDGERED, 0),
+        # docs/phases/PHASE-13 item C: documents that already had income/agent_fees
+        # rows from Phase 12 and just gained a newly-parsed `repairs` row.
+        "topped_up": outcomes.get(TOPPED_UP, 0),
         "ledger_rows_created": created_rows,
         "outcomes": dict(outcomes),
     }

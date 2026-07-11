@@ -769,6 +769,9 @@ export const api = {
   taxConfig: () => get<{ config: TaxConfig }>('/api/tax/config'),
   putTaxConfig: (patch: Partial<Omit<TaxConfig, 'field_help'>>) =>
     post<{ config: TaxConfig }>('/api/tax/config', patch, 'PUT'),
+  // docs/phases/PHASE-13 item A — which tax years have anything to show, so
+  // the year selector only offers years with real documents/ledger rows.
+  taxYears: () => get<{ years: string[]; current_tax_year: string }>('/api/tax/years'),
   taxSummary: (year: string) => get<TaxSummary>(`/api/tax/years/${year}/summary`),
   taxDocuments: (year?: string, unreviewed?: boolean) =>
     get<{ documents: TaxDocument[] }>(
