@@ -20,7 +20,7 @@ from .engines.deals import DealRunValidationError
 from .errors import register_error_handlers
 from .identity import MishkaIdentityClient
 from .models import Base, seed_categories
-from .routers import accounts, auth, deals, goals, health, recurring, summary, sync, tax, transactions
+from .routers import accounts, auth, deals, gifts, goals, health, recurring, summary, sync, tax, transactions, wants
 from .seed_deals import seed_deals
 from .seed_goals import seed_goals
 from .tax_years import seed_tax_years
@@ -100,6 +100,8 @@ def create_app() -> FastAPI:
     app.include_router(summary.router, prefix="/api")
     app.include_router(recurring.router, prefix="/api")
     app.include_router(deals.router, prefix="/api")
+    app.include_router(gifts.router, prefix="/api")
+    app.include_router(wants.router, prefix="/api")
 
     return app
 

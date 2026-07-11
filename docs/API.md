@@ -236,7 +236,17 @@ GET  /api/accounts               → {accounts:[{id, provider, name, kind, lates
                                     "ok"|"not_configured"|"stale"}]}   # stale = no snapshot 48h
 POST /api/accounts/manual        {name, kind, balance_minor} → 201     # manual account + snapshot
 POST /api/accounts/{id}/balance  {balance_minor, local_date} → 200     # manual snapshot entry
-GET  /api/networth               → {series:[{date, total_minor, by_account:{...}}], as_of}
+GET  /api/networth               → {total_minor, by_account:[{account_id, name, balance_minor}],
+                                    series:[{date, total_minor}] (last 90 days), as_of,
+                                    emergency_fund: {months_of_cover, verdict:
+                                      "unknown"|"building_from_scratch"|"below_guide"|
+                                      "within_range"|"well_covered", copy},          # S2, Phase 9
+                                    contractor_gap: {pension_contributing: bool|null,
+                                      fte_conversion_target_date: str|null,
+                                      fte_runway_goal: Goal|null}}                    # S4, Phase 9
+                                    # S2/S4 fold into this bubble's detail rather than adding two
+                                    # more bubbles (docs/DESIGN.md §3b row 8) — same shared function
+                                    # `GET /api/summary/bubbles`'s net_worth entry also returns.
 
 # Transactions
 GET  /api/transactions?month=2026-07&category=groceries&account=1&q=tesco&page=1
@@ -262,8 +272,12 @@ POST /api/tips/{id}/dismiss      → 200
 # §6a depends on it and PHASE-4 item 1 requires the form. Parallels /api/tax/config.
 GET  /api/financial-config       → {financial_config:{payday_day, net_monthly_income_minor,
                                     flat_share_minor, buffer_minor, tax_setaside_mode,
-                                    tax_setaside_fixed_minor}}   # creates a default row if none
+                                    tax_setaside_fixed_minor, pension_contributing: bool|null,
+                                    fte_conversion_target_date: str|null}}  # default row if none
 PUT  /api/financial-config       {any subset of the above} → 200 {financial_config}
+                                  # setting fte_conversion_target_date seeds/re-dates the
+                                  # 'fte_runway' goal (S4, Phase 9) — target_minor stays user-set
+                                  # via the ordinary PATCH /api/goals/fte_runway, never invented
 
 # Recurring
 GET  /api/recurring              → {recurring:[{id, label, cadence, typical_amount_minor,
@@ -298,6 +312,28 @@ GET  /api/tax/ledger?year=2026-27 · DELETE /api/tax/ledger/{id}
 # Deals
 GET  /api/deals                  → {run: {run_at, sources:[...]} | null, deals:[...], stale: bool}
 POST /api/deals/import           → 200 {imported: n}   # loads newest data/deals/*.json
+
+# Personal wants (goal 11, Phase 9) — the affordability check is computed live per
+# unbought item, never stored (docs/DATA_MODEL.md §7a-i)
+GET  /api/wants                  → {wants:[{id, label, price_minor, bought, created_at,
+                                    affordability: {verdict, detail} | null}]}  # null once bought
+POST /api/wants                  {label, price_minor} → 201 {want}
+PATCH /api/wants/{id}            {label? | price_minor? | bought?} → 200 {want}
+DELETE /api/wants/{id}           → 200 {deleted: true}
+
+# Gift-occasion budgets (goal 10, Phase 9) — shares the affordability mechanic via its
+# own endpoint rather than duplicating it (docs/DATA_MODEL.md §7a-i)
+GET  /api/gifts/occasions        → {occasions:[{id, label, limit_minor, target_date,
+                                    items:[{id, occasion_id, label, price_minor, bought,
+                                    bought_date}], spent_minor, remaining_minor,
+                                    verdict: "no_limit_set"|"under_limit"|"over_limit"}]}
+POST /api/gifts/occasions        {label, limit_minor?, target_date?} → 201 {occasion}
+PATCH /api/gifts/occasions/{id}  {label? | limit_minor? | target_date?} → 200 {occasion}
+DELETE /api/gifts/occasions/{id} → 200 {deleted: true}   # cascades its items
+POST /api/gifts/occasions/{id}/items  {label, price_minor} → 201 {occasion}
+PATCH /api/gifts/items/{id}      {label? | price_minor? | bought? | bought_date?} → 200 {occasion}
+DELETE /api/gifts/items/{id}     → 200 {deleted: true}
+GET  /api/gifts/items/{id}/affordability → {verdict, detail}  # vs the occasion's remaining budget
 
 # Splits (only if PLAN §4 S3 accepted)
 GET  /api/splits · POST /api/splits · PATCH /api/splits/{id} · POST /api/splits/settle

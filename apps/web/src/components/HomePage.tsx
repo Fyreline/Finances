@@ -7,6 +7,8 @@ import { DepositGlance, RebuildGlance } from './GoalGlance'
 import { SafeToSpendGlance } from './SafeToSpendGlance'
 import { RecurringGlance, SpendingGlance, TaxGlance } from './InsightGlances'
 import { DealsGlance } from './DealsGlance'
+import { NetWorthGlance } from './NetWorthGlance'
+import { WantsGiftsGlance } from './WantsGiftsGlance'
 import type { BubblesSummary } from '../api'
 import { SettleContext } from '../charts/settle'
 import { SafeToSpendDetail } from './details/SafeToSpendDetail'
@@ -16,6 +18,8 @@ import { SpendingDetail } from './details/SpendingDetail'
 import { RecurringDetail } from './details/RecurringDetail'
 import { TaxDetail } from './details/TaxDetail'
 import { DealsDetail } from './details/DealsDetail'
+import { NetWorthDetail } from './details/NetWorthDetail'
+import { WantsGiftsDetail } from './details/WantsGiftsDetail'
 
 interface BubbleSpec {
   key: string
@@ -26,13 +30,15 @@ interface BubbleSpec {
   glance?: ReactNode
 }
 
-// docs/DESIGN.md §3b — the canonical bubble roster. S1 (net worth) and S3
-// (splits) are not yet accepted (docs/HANDOFF.md "Fable's suggestions ...
-// awaiting accept/reject"), so this is the 7-bubble roster, not 9. Every
-// bubble renders in its `not_configured` setup state until real data exists
-// — no fake numbers (docs/DESIGN.md §3b, docs/PLAN.md §6). As of Phase 7 the
-// whole roster reads from the one `GET /api/summary/bubbles` fetch — each
-// bubble's `glance` is merged in below the moment its data exists.
+// docs/DESIGN.md §3b — the canonical bubble roster. S1 (net worth), S2
+// (emergency fund, folded into the Net Worth detail) and S4 (contractor
+// gap, same) were accepted and built in Phase 9; S3 (splits) is still
+// undecided and stays unbuilt. Goals 10-11 (gift budgets + personal wants)
+// share one "Wants & gifts" bubble (docs/phases/PHASE-9-personal-goals.md).
+// Every bubble renders in its `not_configured` setup state until real data
+// exists — no fake numbers (docs/DESIGN.md §3b, docs/PLAN.md §6). The whole
+// roster reads from the one `GET /api/summary/bubbles` fetch (Phase 7) —
+// each bubble's `glance` is merged in below the moment its data exists.
 const BUBBLE_SPECS: BubbleSpec[] = [
   {
     key: 'safe-to-spend',
@@ -76,6 +82,18 @@ const BUBBLE_SPECS: BubbleSpec[] = [
     title: 'Savings deals',
     lines: ['No research run yet — rates arrive with the first research pass.'],
     Detail: DealsDetail,
+  },
+  {
+    key: 'net-worth',
+    title: 'Net worth',
+    lines: ['No accounts included in net worth yet.'],
+    Detail: NetWorthDetail,
+  },
+  {
+    key: 'wants-gifts',
+    title: 'Wants & gifts',
+    lines: ['Nothing on your wants list or gift occasions yet.'],
+    Detail: WantsGiftsDetail,
   },
 ]
 
@@ -378,6 +396,12 @@ export function HomePage({ summary }: { summary: BubblesSummary | null }) {
       }
       if (spec.key === 'deals' && summary.deals.run && summary.deals.deals.length > 0) {
         return { ...spec, glance: <DealsGlance data={summary.deals} /> }
+      }
+      if (spec.key === 'net-worth' && summary.net_worth.by_account.length > 0) {
+        return { ...spec, glance: <NetWorthGlance data={summary.net_worth} /> }
+      }
+      if (spec.key === 'wants-gifts' && (summary.wants.wants.length > 0 || summary.gifts.occasions.length > 0)) {
+        return { ...spec, glance: <WantsGiftsGlance wants={summary.wants} gifts={summary.gifts} /> }
       }
       return spec
     })

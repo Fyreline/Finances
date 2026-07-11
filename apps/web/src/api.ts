@@ -232,12 +232,39 @@ export interface ManualBalanceBody {
 export interface NetWorthPoint {
   date: string
   total_minor: number
-  by_account: Record<string, number>
 }
 
+export interface NetWorthAccountBalance {
+  account_id: number
+  name: string
+  balance_minor: number
+}
+
+export type EmergencyFundVerdict = 'unknown' | 'building_from_scratch' | 'below_guide' | 'within_range' | 'well_covered'
+
+export interface EmergencyFund {
+  months_of_cover: number | null
+  verdict: EmergencyFundVerdict
+  copy: string
+}
+
+export interface ContractorGap {
+  pension_contributing: boolean | null
+  fte_conversion_target_date: string | null
+  fte_runway_goal: Goal | null
+}
+
+/** docs/PLAN.md §4 S1/S2/S4, docs/phases/PHASE-9-personal-goals.md §1-3 —
+ * the Net Worth bubble hosts all three: the total + windowed sparkline is
+ * the glance, the account breakdown/emergency-fund/contractor-gap sections
+ * live in its detail view (docs/DESIGN.md §3b row 8). */
 export interface NetWorth {
+  total_minor: number
+  by_account: NetWorthAccountBalance[]
   series: NetWorthPoint[]
   as_of: string | null
+  emergency_fund: EmergencyFund
+  contractor_gap: ContractorGap
 }
 
 export type GoalStatus = 'on_track' | 'behind' | 'no_trend'
@@ -379,6 +406,10 @@ export interface FinancialConfig {
   buffer_minor: number
   tax_setaside_mode: 'auto' | 'fixed' | 'off'
   tax_setaside_fixed_minor: number | null
+  // S4 contractor gap (docs/phases/PHASE-9-personal-goals.md §3) — both
+  // tri-state/nullable, NEVER a false default (docs/PRIVATE.md).
+  pension_contributing: boolean | null
+  fte_conversion_target_date: string | null
 }
 
 // ------------------------------------------------------------------------
@@ -580,6 +611,58 @@ export interface TaxGlanceData {
   unreviewed_documents: number
 }
 
+// ------------------------------------------------------------------------
+// Personal wants + gift-occasion budgets — docs/PLAN.md §3 rows 10-11,
+// docs/phases/PHASE-9-personal-goals.md §4-5. Both share the affordability
+// mechanic (`Affordability`) rather than two separate systems.
+// ------------------------------------------------------------------------
+export type AffordabilityVerdict = 'unknown' | 'fits_now' | 'not_yet' | 'fits_from_spare_cash'
+
+export interface Affordability {
+  verdict: AffordabilityVerdict
+  detail: string
+}
+
+export interface WantItem {
+  id: number
+  label: string
+  price_minor: number
+  bought: boolean
+  created_at: string
+  /** `null` once bought — no live verdict for something already decided. */
+  affordability: Affordability | null
+}
+
+export interface WantsList {
+  wants: WantItem[]
+}
+
+export type OccasionVerdict = 'no_limit_set' | 'under_limit' | 'over_limit'
+
+export interface GiftItem {
+  id: number
+  occasion_id: number
+  label: string
+  price_minor: number
+  bought: boolean
+  bought_date: string | null
+}
+
+export interface GiftOccasion {
+  id: number
+  label: string
+  limit_minor: number | null
+  target_date: string | null
+  items: GiftItem[]
+  spent_minor: number
+  remaining_minor: number | null
+  verdict: OccasionVerdict
+}
+
+export interface GiftOccasionsList {
+  occasions: GiftOccasion[]
+}
+
 /** Every bubble's collapsed glance payload in ONE call — the home screen is
  * a single fetch (docs/phases/PHASE-7-dashboard.md item 6). Each sub-payload
  * is exactly what the matching standalone endpoint returns, built from the
@@ -592,6 +675,9 @@ export interface BubblesSummary {
   tips_count: number
   recurring: RecurringList
   deals: DealsResponse
+  net_worth: NetWorth
+  wants: WantsList
+  gifts: GiftOccasionsList
   tax: TaxGlanceData
   sync: { runs: SyncRunStatus[] }
 }
@@ -658,6 +744,25 @@ export const api = {
 
   deals: () => get<DealsResponse>('/api/deals'),
   importDeals: () => post<{ imported: number }>('/api/deals/import', {}),
+
+  wants: () => get<WantsList>('/api/wants'),
+  createWant: (body: { label: string; price_minor: number }) => post<{ want: WantItem }>('/api/wants', body),
+  patchWant: (id: number, patch: { label?: string; price_minor?: number; bought?: boolean }) =>
+    post<{ want: WantItem }>(`/api/wants/${id}`, patch, 'PATCH'),
+  deleteWant: (id: number) => del<{ deleted: boolean }>(`/api/wants/${id}`),
+
+  giftOccasions: () => get<GiftOccasionsList>('/api/gifts/occasions'),
+  createGiftOccasion: (body: { label: string; limit_minor?: number | null; target_date?: string | null }) =>
+    post<{ occasion: GiftOccasion }>('/api/gifts/occasions', body),
+  patchGiftOccasion: (id: number, patch: { label?: string; limit_minor?: number | null; target_date?: string | null }) =>
+    post<{ occasion: GiftOccasion }>(`/api/gifts/occasions/${id}`, patch, 'PATCH'),
+  deleteGiftOccasion: (id: number) => del<{ deleted: boolean }>(`/api/gifts/occasions/${id}`),
+  createGiftItem: (occasionId: number, body: { label: string; price_minor: number }) =>
+    post<{ occasion: GiftOccasion }>(`/api/gifts/occasions/${occasionId}/items`, body),
+  patchGiftItem: (id: number, patch: { label?: string; price_minor?: number; bought?: boolean; bought_date?: string | null }) =>
+    post<{ occasion: GiftOccasion }>(`/api/gifts/items/${id}`, patch, 'PATCH'),
+  deleteGiftItem: (id: number) => del<{ deleted: boolean }>(`/api/gifts/items/${id}`),
+  giftItemAffordability: (id: number) => get<Affordability>(`/api/gifts/items/${id}/affordability`),
 }
 
 export { ApiError }

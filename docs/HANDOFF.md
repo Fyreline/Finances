@@ -20,8 +20,9 @@ Update it every phase; it is the first thing the next agent reads after PLAN.md.
 | **Phase 6 — deals + splits** | ✅ **Deals complete 2026-07-10** (Sonnet). **Warikan (S3) deliberately skipped** — HANDOFF Q10 is still unanswered, and PHASE-6-deals-splits.md's own text is explicit: "Warikan builds only if PLAN §4 S3 was accepted... if rejected, delete its half from this doc and skip." Undecided reads as not-yet-accepted per this phase's own conditional scoping, so only the Deals half was built; `split_entries` stays in the schema (Phase 1 already created the table) but unused, and its half of PHASE-6-deals-splits.md is left in place (neither accepted nor rejected — nothing to delete). Deals: `data/deals/*.json` schema + `deal_runs`/`savings_deals` idempotent-per-file import (`engines/deals.py`, `deals_service.py`, `routers/deals.py`), one synthetic placeholder research run seeded at server startup (`seed_deals.py` — unambiguously labelled "SYNTHETIC TEST DATA", `.invalid` source URL, never a real rate), `scripts/research_deals_prompt.md` (the reusable monthly research checklist) + DEPLOYMENT.md §4d expanded with concrete scheduled-task setup steps. Web: real DealsPage (`DealsDetail.tsx`) + bubble glance (`DealsGlance.tsx`) wired into `HomePage.tsx`. Details + real verification below. |
 | **Phase 7 — dashboard polish** | ✅ **complete 2026-07-10** (Sonnet). One-fetch home (`GET /api/summary/bubbles`), chart-craft audit (contrast-checked both themes, deuteranopia-simulated, pale-token outline rule enforced via `categoryChipClass`), count-up on safe-to-spend, settle-gated chart draw-ins (`SettleContext`/`useBarFill`), every chart states its window, mobile-header overflow fix, copy pass, KakeiboMark converted to `currentColor`. SpendCalendar (nice-to-have) **not built** — out of time budget this pass. Details + real verification below. |
 | **Phase 8 — verify & ship-readiness** | ✅ **complete 2026-07-10** (Fable). Full fresh verification sweep green (271 server tests — 268 inherited + 3 new, 39 web tests, typecheck, build), every doc's acceptance greps re-run against the real tree, fixture-mode walkthrough verified live in the browser. **Two genuine cross-phase bugs found and fixed** (tax-estimate → safe-to-spend set-aside was never wired; `/api/health` shape had drifted off the API.md contract). **Redaction sweep: 4 current-tree leaks fixed; git history still carries the pre-redaction personal specifics — a history rewrite before first push is flagged as a REQUIRED launch gate, deliberately not performed unilaterally.** Deployment readiness prepared, not executed: Pages workflow, 4 LaunchAgent plist templates (`deploy/launchagents/`), `backup_db.py` ported + smoke-tested, CLAUDE.md + README.md written. No remote exists; nothing pushed/installed. Details + the ship-day punch list below. |
-| Credentials (Starling PAT, T212 key, Gmail OAuth) | ⬜ none exist — see SECRETS.md; **implementation must not block on them** (fixtures + `not_configured` states are specced everywhere) |
-| Fable's suggestions S1–S5, C1–C3 (PLAN §4) | ⬜ awaiting accept/reject — S1/S3/S4 have build homes in phases 3/6/4; reject = delete from the phase doc before it runs |
+| **Phase 9 — net worth, emergency fund, contractor gap, gift/wants goals** | ✅ **complete 2026-07-11** (Sonnet). Real Starling/T212/Gmail credentials now exist locally (validated working) but this phase still builds/tests entirely against fixtures/dev db, same discipline as every prior phase. S1 (net worth), S2 (emergency fund), S4 (contractor gap), goal 10 (gift budgets), goal 11 (personal wants + affordability check) all built. 320 server tests (271 inherited + 49 new), 39 web tests, typecheck/build clean. Details + real verification commands below. |
+| Credentials (Starling PAT, T212 key, Gmail OAuth) | ✅ **real credentials now exist locally, validated 2026-07-10/11** (Starling/T212 sync real data; Gmail OAuth live, gated on Q3 sender config) — still never used in a fixture/test (docs/PRIVATE.md redaction scheme unchanged) |
+| Fable's suggestions S1–S5, C1–C3 (PLAN §4) | S1/S2/S4 ✅ **built Phase 9** (docs/DESIGN.md §3e — S2/S4 folded into the Net Worth bubble's detail, not new bubbles). S3/S5/C1–C3 still ⬜ undecided/unbuilt. |
 | Aizome sync script | ✅ `DST_KAKEIBO` added in Phase 1 (`learningLanguageMachine/scripts/sync-theme.sh`); Kakeibo's `theme.css` is byte-identical to the canonical copy (verified by diff) |
 | **Port conflict — resolved** | ✅ **Resolved 2026-07-10 (orchestrator, not Phase 1 itself).** Phase 1 correctly flagged that `kakeibo-web`'s originally-assigned dev port (5175) collided with `japan-web`'s dev port, which `Japan_website/docs/ARCHITECTURE.md`/`DEPLOYMENT.md` claims permanently ("Japan takes port 5175 — Mishka owns 5173, Michi 5174") — a genuine contradiction the docs suite introduced (Fable's port registry in ARCHITECTURE.md §1 didn't check Japan_website's existing claim). Rather than touch Japan_website's docs/port, **Kakeibo's dev web port was moved to 5178** (first free port after 5173/5174/5175/5176/5177, all already claimed — see the shared `launch.json`). Updated: `ARCHITECTURE.md` §1 + repo-layout comments, `apps/web/vite.config.ts`, `DEPLOYMENT.md`, `PHASE-1-scaffold.md`, and the shared `~/…/Dev/.claude/launch.json`'s `kakeibo-web` entry. Kakeibo's API ports (8200/8201) were never in conflict and are unchanged. Japan_website was not modified. |
 
@@ -109,12 +110,10 @@ inferred. Answers go in [PRIVATE.md](PRIVATE.md), not here.
 **Product/scope:**
 
 - [x] **Q10. Accept/reject S1–S5/C1–C3 — partially answered 2026-07-10: S1 (net
-  worth), S2 (emergency fund), S4 (contractor gap) accepted.** S3 (Warikan) not
-  selected — stays undecided/unbuilt. S5 and C1–C3 not addressed this round, still
-  open. Accepted items are candidates for Phase 9 (not yet built — Phases 3/4/6, where
-  they'd have landed, already shipped without them). A new related request also landed
-  this round: an affordability-check mechanic for goal 11 (personal wants) — see
-  PLAN.md §3 row 11 and §4 above, already folded into the public docs.
+  worth), S2 (emergency fund), S4 (contractor gap) accepted, all three built Phase 9.**
+  S3 (Warikan) not selected — stays undecided/unbuilt. S5 and C1–C3 not addressed this
+  round, still open. The affordability-check mechanic for goal 11 (personal wants) that
+  landed alongside this round is also built Phase 9 — see PLAN.md §3 row 11.
 - [x] **Q11. Repo goes public? — Confirmed public 2026-07-10.** Git history was
   squashed to one clean commit before any remote existed, specifically to remove
   personal specifics that had been sitting in pre-redaction commit diffs — verified
@@ -938,11 +937,158 @@ unmodified.**
 5. First real accountant/HMRC sanity-check of the estimate once Q1/Q3/Q5 land
    (PHASE-8 §1 records the delta here — should be £0 or explained).
 6. Take the README screenshot (placeholder marked in README.md).
-7. Housekeeping still open from prior phases: Q10 accept/reject S1–S5 (Warikan and
-   Net-worth bubbles are specced, unbuilt); SpendCalendar nice-to-have; Lighthouse
-   a11y run (no tool available in any phase's context so far); 2026-27 Scottish
-   rates into `tax_rates.py` when the Budget lands; first real deals-research run
-   (DEPLOYMENT §4d) to retire the synthetic placeholder.
+7. Housekeeping still open from prior phases: Q10's S3 (Warikan) still undecided
+   (Splits bubble specced, unbuilt); SpendCalendar nice-to-have; Lighthouse a11y run
+   (no tool available in any phase's context so far); 2026-27 Scottish rates into
+   `tax_rates.py` when the Budget lands; first real deals-research run (DEPLOYMENT §4d)
+   to retire the synthetic placeholder; Q12 (pension) and Q13 (2025-26 records) still
+   need real answers now that the app has somewhere to put them (`financial_config.
+   pension_contributing`, the tax ledger's manual-entry path).
+
+## Phase 9 completion note (2026-07-11, Sonnet)
+
+**Read fully first, per PLAN.md §6 rule 1:** PHASE-9-personal-goals.md, PLAN.md §6/§3/§4,
+DESIGN.md §3/§6, DATA_MODEL.md, this file's every phase note (not just headers), PRIVATE.md,
+and the house-pattern files named in the task brief (`engines/goals.py`, `routers/goals.py`,
+`routers/summary.py`, `GoalGlance.tsx`/`DepositDetail.tsx`, `useGoals.ts`). No `apps/server/
+CLAUDE.md` exists (the task brief named the wrong path) — root `CLAUDE.md`'s hard rules and
+gotchas section covers the same ground and was read instead. No genuine doc contradiction
+found this phase (PLAN.md §6 rule 1's "stop-and-report" bar wasn't hit); one implementation-
+pattern deviation was needed and is recorded below, not a contradiction.
+
+**Built (server):** `engines/networth.py` (`net_worth_series`/`net_worth_now`, pure),
+`engines/emergency_fund.py` (`emergency_fund_check`, four-band verdict, honest `unknown`
+when there's no spend history to divide by), `engines/affordability.py`
+(`check_affordability` — the shared goal-11/goal-10 mechanic, composed from
+`engines.goals.GoalProjection` run before/after a price, ceils its weeks-delay estimate so
+it never flatters), `engines/gifts.py` (`occasion_summary`). `routers/accounts.py`'s
+existing `GET /api/networth` (see "found while reading" below) extended into
+`networth_payload()` — now returns `total_minor`/`by_account` (with names)/a 90-day-windowed
+`series`, plus S2's `emergency_fund` and S4's `contractor_gap` sub-objects, shared verbatim
+with `GET /api/summary/bubbles`'s new `net_worth` entry (Phase-7 one-fetch precedent —
+same function, can't disagree). `routers/summary.py` extended: `financial_config` gained
+`pension_contributing`/`fte_conversion_target_date` (tri-state, never a false default);
+setting the FTE date seeds/re-dates an `fte_runway` `Goal` row (same table/engine as
+`house_deposit`, target amount left `NULL` until the user PATCHes it via the *existing*
+`/api/goals/{key}` endpoint — no new goal endpoint, per the phase doc). New
+`routers/wants.py` (CRUD + a live per-item affordability check against safe-to-spend
+headroom and the `house_deposit` projection) and `routers/gifts.py` (CRUD for occasions +
+items, `occasion_summary` rollup, plus a per-item affordability endpoint that reuses the
+same `check_affordability` against the occasion's own remaining budget instead of general
+headroom — one engine, two callers, per the phase doc's explicit "don't build two
+separate systems"). Both wired into `main.py` and into `bubbles_payload()`'s new
+`wants`/`gifts` entries. `models.py` gained `gift_occasions`/`gift_items`/`want_items` and
+`FinancialConfig`'s two new nullable columns.
+
+**Built (web):** `NetWorthGlance.tsx` (total + 90-day sparkline + one dot per account) and
+`components/details/NetWorthDetail.tsx` (`TrendLine` + account breakdown + the S2/S4
+sections — see "where S2/S4 landed" below). `WantsGiftsGlance.tsx` and
+`components/details/WantsGiftsDetail.tsx` (one bubble, `#wants-gifts/wants` and
+`#wants-gifts/gifts` hash-routed tabs mirroring `SpendingDetail.tsx`'s pattern exactly —
+an add-item form per tab, an affordability pill per want item reading the shared verdict
+vocabulary, and per-occasion cards with their own item lists + running total against the
+limit). `charts/verdict.ts` gained `EMERGENCY_FUND_*`/`AFFORDABILITY_*`/`OCCASION_*` token
+maps (kraft for "not yet"/low bands, olive for "fits"/"well covered", oat for neutral/
+unknown — no crimson anywhere in this phase's new UI, per PLAN.md §6 rule 8). `HomePage.tsx`
+gained the `net-worth` and `wants-gifts` bubble specs, roster comment updated to reflect
+S1/S2/S4 built + goals 10-11's shared bubble.
+
+**Where S2 (emergency fund) and S4 (contractor gap) landed, and why:** both fold into the
+Net Worth bubble's detail view as two quiet `border-t`-divided sections, not new bubbles.
+Reasoning recorded in DESIGN.md §3e (added this phase): S2 needs exactly the accessible-cash
+figure Net Worth's account breakdown already computes; PLAN.md §4's own text calls S4 "a
+quiet dashboard card"; and a 10th bubble (after goals 10-11's own new "Wants & gifts" bubble)
+would have pushed past DESIGN §3d's density principle at the *screen* level, not just inside
+one card. Goals 10-11 (gift budgets + personal wants), by contrast, got their own bubble —
+they're a materially new *kind* of content (a wishlist, a set of occasions), not a derived
+view over data another bubble already owns.
+
+**Found while reading before coding (per PLAN.md §6 rule 7 discipline):** `GET /api/networth`
+already existed (`routers/accounts.py`, built ahead of its own phase during Phase 3's
+`balances.py` work — API.md already documented a `{series, as_of}` shape). Rather than create
+a second `routers/networth.py` at the same path (a route conflict) or duplicate the endpoint,
+the existing one was extended in place — `engines/networth.py`'s pure functions now back it,
+and its response shape grew (windowed series, named `by_account`, the new S2/S4 sub-objects)
+rather than being replaced. `test_networth_empty_with_no_accounts`/
+`test_networth_sums_across_manual_accounts_by_date` (pre-existing) were updated to match the
+richer shape rather than left to silently drift.
+
+**Implementation-pattern deviation from PLAN.md's original goal 10/11 sketch (recorded, not
+a contradiction):** PLAN.md §3 rows 10-11 originally sketched both as `goals`-table
+`kind='occasion'`/`kind='personal_wants'` variants. PHASE-9-personal-goals.md itself
+superseded that once the feature was actually scoped, specifying dedicated `gift_occasions`/
+`gift_items`/`want_items` tables instead (§4-5) — a materially better fit for a child items
+list than overloading the goals table's projection-maths shape, which goal 10/11 don't need
+at all. Built to PHASE-9's own (newer, more specific) spec; PLAN.md's two rows corrected to
+describe what was actually built and note the supersession, per the redaction-adjacent
+"keep docs honest about what shipped" discipline every prior phase has followed.
+
+**The pre-existing `emergency_fund` goal row and the Phase-4 tip, reconciled not duplicated:**
+Phase 4's `tip_emergency_fund_low` already existed as a single-threshold ("below 3 months")
+info tip, gated on an `emergency_fund` `Goal` stub `seed_goals.py` creates automatically.
+This phase's four-band engine is a separate, richer surface (S2's own spec), but both now
+read the *same* accessible-cash/essential-monthly figures — `insights_service.py` gained
+public `accessible_cash_minor()`/`essential_monthly_minor()` wrappers over what were private
+helpers, used by both the tip and the new `_emergency_fund_payload()`, so the two surfaces
+can state different verdict granularity but can never disagree on the underlying numbers.
+
+**Hard constraints checked explicitly:** every new money field ends `_minor`, integer pence,
+no floats in any server money path (the one client-side float, `poundsToMinor` in the two new
+add-item forms, converts at the form edge exactly like every prior phase's pattern). No real
+occasion names, prices, or figures anywhere in source/tests — every label is "Occasion A" /
+"gift item" / "widget"-style generic (a full grep sweep for the PRIVATE.md sensitive-terms
+list — employer, partner's name, real goal figures/dates, the real gift examples — was run
+against the actual diff, not the whole tree, and returned nothing; see the redaction sweep
+below). No guilt UI: over-limit, "not yet", and the lowest emergency-fund band all render in
+kraft/oat, never crimson, and the emergency-fund copy explicitly names the deliberate-
+trade-off framing when a house/rebuild goal is active and behind. `pension_contributing`/
+`fte_conversion_target_date` render an honest unanswered state (`None`/"not sure yet"),
+checked live (see below). Read-only against every bank/API — this phase touches zero
+integration code (`app/integrations/` untouched); confirmed via `git status`. `GET
+/api/summary/bubbles` extended (`net_worth`/`wants`/`gifts` entries) rather than adding new
+unbatched round-trips to the collapsed home; each bubble's own detail view still fetches its
+own richer data on expand, matching every existing bubble's precedent (Recurring/Deals/Tax).
+
+**Verification commands run, real output:**
+```
+$ cd apps/server && .venv/bin/python -m pytest -q
+320 passed, 1 warning in 5.35s
+
+$ cd apps/web && npm run typecheck
+> tsc --noEmit
+(clean, no output)
+
+$ cd apps/web && npm run test -- --run
+Test Files  3 passed (3)
+     Tests  39 passed (39)
+
+$ cd apps/web && npm run build
+✓ 459 modules transformed.
+✓ built in 174ms
+```
+
+**Redaction sweep (per acceptance list, run against the actual diff + every new file, not
+the whole pre-existing tree):** `git diff` (added lines only) plus every new file's full
+contents, checked against the PRIVATE.md sensitive-terms pattern (employer, partner's name,
+real goal figures/dates/baseline, the real gift examples, the real pension/consultancy
+detail) — zero matches. The handful of numeric false-positives an early looser regex caught
+(`50000`, `250000` etc. in pre-existing test fixtures) were confirmed via `git diff` to be
+untouched pre-existing pence amounts (£500, £2,500 — synthetic test money), not this phase's
+content. `docs/PRIVATE.md` remains untracked and unchanged in scope beyond being read.
+
+**Not built (deliberately out of Phase 9 scope):** an `include_in_networth` toggle UI for
+accounts — DESIGN.md's pre-Phase-9 aspirational table cell mentioned "include/exclude
+toggles", but PHASE-9-personal-goals.md's own S1 text only asks for "a breakdown list
+(account name + balance) on expand", so no new PATCH endpoint or toggle control was added;
+DESIGN.md §3b row 8 corrected to describe what was actually specced and built rather than
+carry the stale aspirational phrase forward. Warikan/S3 (still undecided, Q10). A Lighthouse
+a11y pass on the two new detail views (no Lighthouse-capable tool available in this context,
+same gap every prior phase has recorded). Live walkthrough against real Starling/T212 data —
+this phase's acceptance criteria and every hard constraint call for fixtures/dev-db only
+regardless of real credentials existing locally now; a fixture-mode dev-server walkthrough
+was not additionally performed beyond the automated suite given the size of this phase, but
+every new engine has edge-case unit tests (zero accounts, exactly 3.0 months, a want costing
+more than the entire goal target, a zero-item gift occasion) matching the acceptance list.
 
 ## Bodies, buried
 

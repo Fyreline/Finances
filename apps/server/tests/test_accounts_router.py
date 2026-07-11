@@ -5,7 +5,7 @@ accounts are local-only DB writes, never a write to any bank/broker
 from __future__ import annotations
 
 from app.db import SessionLocal
-from app.models import BalanceSnapshot
+from app.models import Account, BalanceSnapshot, Category, Transaction
 from tests.conftest import auth_headers, make_user
 
 
@@ -104,7 +104,23 @@ def test_networth_empty_with_no_accounts(client):
     user_id = make_user()
     res = client.get("/api/networth", headers=auth_headers(user_id))
     assert res.status_code == 200
-    assert res.json() == {"series": [], "as_of": None}
+    body = res.json()
+    assert body["total_minor"] == 0
+    assert body["by_account"] == []
+    assert body["series"] == []
+    assert body["as_of"] is None
+    # S2/S4 (docs/phases/PHASE-9-personal-goals.md) degrade honestly too —
+    # no essential-spend history yet, no pension answer yet.
+    assert body["emergency_fund"] == {
+        "months_of_cover": None,
+        "verdict": "unknown",
+        "copy": "Not enough spending history yet to estimate essential monthly costs.",
+    }
+    assert body["contractor_gap"] == {
+        "pension_contributing": None,
+        "fte_conversion_target_date": None,
+        "fte_runway_goal": None,
+    }
 
 
 def test_networth_sums_across_manual_accounts_by_date(client):
@@ -139,3 +155,76 @@ def test_networth_sums_across_manual_accounts_by_date(client):
     assert body["as_of"] is not None
     totals = {point["date"]: point["total_minor"] for point in body["series"]}
     assert totals["2026-08-02"] == 4000
+    # The "now" figures reflect the latest date across both accounts.
+    assert body["total_minor"] == 4000
+    by_account = {row["name"]: row["balance_minor"] for row in body["by_account"]}
+    assert by_account == {"Account 1": 1500, "Account 2": 2500}
+
+
+# ------------------------------------------------------- S2 emergency fund
+def test_networth_emergency_fund_uses_real_accessible_cash_and_essential_spend(client):
+    """docs/PLAN.md §4 S2, docs/phases/PHASE-9-personal-goals.md §2 —
+    end-to-end: a savings balance + three months of a fixed-category spend
+    (synthetic figures, docs/PRIVATE.md) produces a real months-of-cover
+    verdict, and an investment-kind account is correctly excluded from
+    "accessible cash" (S2's accessible_cash excludes T212)."""
+    user_id = make_user()
+    headers = auth_headers(user_id)
+    with SessionLocal() as session:
+        savings = Account(user_id=user_id, provider="manual", name="Savings", kind="savings", currency="GBP")
+        investment = Account(user_id=user_id, provider="manual", name="ISA", kind="investment", currency="GBP")
+        session.add_all([savings, investment])
+        session.commit()
+        session.refresh(savings)
+        session.refresh(investment)
+        session.add_all(
+            [
+                BalanceSnapshot(account_id=savings.id, captured_at="2026-07-01 00:00:00", local_date="2026-07-01", balance_minor=150_000),
+                BalanceSnapshot(account_id=investment.id, captured_at="2026-07-01 00:00:00", local_date="2026-07-01", balance_minor=999_999),
+            ]
+        )
+        housing = session.query(Category).filter_by(key="housing").one()
+        for i, month in enumerate(("2026-05", "2026-06", "2026-07")):
+            session.add(
+                Transaction(
+                    account_id=savings.id,
+                    provider_uid=f"rent-{i}",
+                    amount_minor=-50_000,
+                    transaction_time=f"{month}-01T00:00:00Z",
+                    local_date=f"{month}-01",
+                    settled=1,
+                    counterparty="Landlord",
+                    category_id=housing.id,
+                    category_source="provider",
+                    raw_json="{}",
+                )
+            )
+        session.commit()
+
+    body = client.get("/api/networth", headers=headers).json()
+    # accessible cash = savings only (£1,500), essential = £500/month avg -> 3.0 months exactly
+    assert body["emergency_fund"]["months_of_cover"] == 3.0
+    assert body["emergency_fund"]["verdict"] == "within_range"
+    # Net worth itself, by contrast, includes every include_in_networth
+    # account (both savings and the investment).
+    assert body["total_minor"] == 150_000 + 999_999
+
+
+# ------------------------------------------------------------ S4 contractor gap
+def test_networth_contractor_gap_reflects_config_and_fte_runway_goal(client):
+    user_id = make_user()
+    headers = auth_headers(user_id)
+
+    before = client.get("/api/networth", headers=headers).json()["contractor_gap"]
+    assert before == {"pension_contributing": None, "fte_conversion_target_date": None, "fte_runway_goal": None}
+
+    client.put(
+        "/api/financial-config",
+        headers=headers,
+        json={"pension_contributing": False, "fte_conversion_target_date": "2028-04-01"},
+    )
+    after = client.get("/api/networth", headers=headers).json()["contractor_gap"]
+    assert after["pension_contributing"] is False
+    assert after["fte_conversion_target_date"] == "2028-04-01"
+    assert after["fte_runway_goal"]["key"] == "fte_runway"
+    assert after["fte_runway_goal"]["target_minor"] is None

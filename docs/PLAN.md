@@ -81,8 +81,8 @@ not a feature.
 | 7 | Recurring payment detection | Pattern matching over the Starling feed: same counterparty + similar amount (±12%) + ~monthly cadence (28–33 days) → recurring row with confidence score and cancel-candidate flags. Algorithm in [DATA_MODEL.md](DATA_MODEL.md) §3. | [PHASE-4](phases/PHASE-4-insights.md) |
 | 8 | Rental income & tax consolidation | Three parts: **(a) organise** — read-only Gmail pull of rental paperwork into `tax-documents/<tax-year>/`, per UK tax year, accountant-ready; **(b) estimate** — Scottish income tax on rental profit with the Section 24 finance-cost restriction vs the £1,000 property allowance, both computed, better one shown (and the NIC position stated correctly — ordinary letting is *not* liable to Class 2/4 NIC, [TAX.md](TAX.md) §4); **(c) track** — allowable-expense ledger fed from transactions + documents. Blocked on the [HANDOFF.md](HANDOFF.md) mortgage/SA open questions — the engine takes them as config, never guesses. | [PHASE-5](phases/PHASE-5-tax.md) |
 | 9 | Freeform | §4 below — each item individually acceptable/rejectable. | various |
-| 10 | Occasion gift budgets | User-requested (2026-07-10), **deferred — not needed for initial build**: an occasion-scoped sinking fund per gift-giving event (partner's birthday, Christmas — real occasions/dates: PRIVATE.md), each with a spending limit and an itemised list of planned/bought items + prices (typically one larger item in the low hundreds of pounds, plus smaller items). Verdict against the limit as items are added, same visual language as the deposit GoalBar. Structurally this is the `goals` table with a `kind='occasion'` variant + a child `gift_items` table — cheap to add once Phase 3's goal engine exists. Candidate for **Phase 9** or folded into Phase 6. | future |
-| 11 | Personal wants / project budget | User-requested (2026-07-10), **deferred**: a running wishlist of things the user wants for himself or for hobby/side-project spending, each with a price. Refined (2026-07-10): rather than a simple capped pot, the core mechanic is an **affordability check** — cross-reference an item's price against current safe-to-spend headroom *and* whether buying it would knock the house-deposit/T212-rebuild goals off track, returning a "yes, affordable" / "not yet — would push goal X back" verdict rather than just tracking spend against a fixed budget. The same mechanic likely fits goal 10's gift budgets too, for consistency. Same structural pattern as goal 10 (`kind='personal_wants'`). Candidate for **Phase 9** or folded into Phase 6. | future |
+| 10 | Occasion gift budgets | User-requested (2026-07-10), **built Phase 9**: an occasion-scoped sinking fund per gift-giving event, each with a spending limit and an itemised list of planned/bought items + prices. Verdict against the limit as items are added (over-limit renders as calm information, not guilt). Built as its own `gift_occasions`/`gift_items` table pair rather than a `goals`-table `kind='occasion'` variant (docs/phases/PHASE-9-personal-goals.md superseded this row's original sketch once it was actually scoped — a cleaner fit for a child items list than overloading the `goals` table). | [PHASE-9](phases/PHASE-9-personal-goals.md) ✅ |
+| 11 | Personal wants / project budget | User-requested (2026-07-10), **built Phase 9**: a running wishlist of things the user wants for himself or for hobby/side-project spending, each with a price. Refined (2026-07-10): rather than a simple capped pot, the core mechanic is an **affordability check** — cross-reference an item's price against current safe-to-spend headroom *and* whether buying it would knock the house-deposit goal off track, returning a "yes, this fits" / "not yet — would push the goal back roughly N weeks" / "fits from spare cash" verdict rather than just tracking spend against a fixed budget. The same mechanic powers goal 10's gift items too (an occasion's remaining budget stands in for safe-to-spend headroom), one `engines/affordability.py`, not two systems. Built as its own `want_items` table (not a `goals`-table variant, same reasoning as goal 10). | [PHASE-9](phases/PHASE-9-personal-goals.md) ✅ |
 
 ### 3a. The home screen: bubbles
 
@@ -101,17 +101,16 @@ the phase noted; rejected items are deleted from the phase docs before that phas
 
 ### In-app features
 
-- [x] **S1 — Net worth strip** (Phase 3, cheap) — **accepted 2026-07-10.** Starling
-  balance + T212 total + a manual entry for anything else, snapshotted daily, one
-  sparkline. The deposit and rebuild goals already need the snapshot table, so this is
-  nearly free. Not yet built (accepted after Phase 3 shipped) — candidate for Phase 9
-  alongside the other accepted-late items, or a small standalone addition.
-- [x] **S2 — Emergency-fund adequacy check** (Phase 4) — **accepted 2026-07-10.**
-  Months-of-essential-spend covered by accessible cash (essential = fixed commitments +
-  groceries baseline), verdict against the standard 3–6 month band. Honest nuance:
-  while the deposit goal dominates, this will read "below 3 months" for a while — copy
-  should say "deliberate trade-off while saving for the deposit", not guilt. Not yet
-  built (accepted after Phase 4 shipped) — candidate for Phase 9.
+- [x] **S1 — Net worth strip** (Phase 3, cheap) — **accepted 2026-07-10, built Phase 9.**
+  Starling balance + T212 total + manual entries, snapshotted daily, a 90-day sparkline
+  and per-account breakdown in the Net Worth bubble's detail view.
+- [x] **S2 — Emergency-fund adequacy check** (Phase 4) — **accepted 2026-07-10, built
+  Phase 9.** Months-of-essential-spend covered by accessible cash (essential = fixed
+  commitments + groceries baseline), a four-band verdict (building from scratch / below
+  guide / within range / well covered). Honest nuance implemented as specced: while the
+  deposit goal dominates, a low reading's copy explicitly reads "a deliberate trade-off
+  while you're saving toward other goals", never guilt. Landed inside the Net Worth
+  bubble's detail rather than its own bubble (docs/DESIGN.md §3e).
 - [ ] **S3 — Warikan (割り勘) partner split tracker** (Phase 6): a lightweight IOU
   ledger for the informal grocery/shared-cost split. This user's side only — log a
   shared cost, record who paid, track the running balance, settle whenever. **Never
@@ -119,13 +118,11 @@ the phase noted; rejected items are deleted from the phase docs before that phas
   transaction. **Still undecided** — not selected when S1/S2/S4 were accepted
   (2026-07-10); stays unbuilt until explicitly accepted.
 - [x] **S4 — Contractor gap card** (Phase 4, static config + one rule) — **accepted
-  2026-07-10.** A quiet dashboard card noting the contractor-vs-FTE gaps that cost real
-  money — pension contributions (is anything going into a pension at all? if the
-  consultancy runs auto-enrolment, at what %?), no sick pay/income protection
-  assumptions, and an **FTE-conversion runway sub-goal** (a small cash buffer targeted
-  at ~April 2028 in case conversion slips). Needs HANDOFF Q12 (pension) answered before
-  it can show real figures; employment type (Q5) is now confirmed PAYE. Not yet built —
-  candidate for Phase 9.
+  2026-07-10, built Phase 9.** A quiet section (Net Worth bubble's detail, docs/DESIGN.md
+  §3e) noting the contractor-vs-FTE gap — `pension_contributing` renders an honest
+  "not sure yet" while HANDOFF Q12 stays open (never assumed `false`), and an
+  **FTE-conversion runway goal** is seeded once a conversion date is set in financial
+  config (target amount stays user-set via the ordinary goal PATCH, never invented).
 - [ ] **S5 — Tax set-aside pot tracking** (Phase 5): the tax estimator already computes
   the accruing SA liability; this suggestion surfaces it as a "money that isn't yours"
   line inside safe-to-spend, so January's bill never surprises. **Not yet addressed** in

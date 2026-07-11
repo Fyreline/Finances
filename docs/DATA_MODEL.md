@@ -184,7 +184,8 @@ goals
   id INTEGER PK
   user_id INTEGER NOT NULL REFERENCES users(id)
   key TEXT UNIQUE NOT NULL          -- 'house_deposit' | 't212_rebuild' | 'emergency_fund'
-                                    -- | 'fte_runway' (if PLAN §4 S4 accepted)
+                                    -- | 'fte_runway' (S4, Phase 9 — seeded once
+                                    --   financial_config.fte_conversion_target_date is set)
   label TEXT NOT NULL
   target_minor INTEGER              -- house_deposit: user-configured (PRIVATE.md); NULL = open-ended (t212_rebuild)
   target_date TEXT                  -- house_deposit: user-configured exact date, per the brief
@@ -239,6 +240,10 @@ financial_config                    -- single row per user; the safe-to-spend in
   buffer_minor INTEGER NOT NULL DEFAULT 15000   -- £150 monthly slack, user-tunable
   tax_setaside_mode TEXT NOT NULL DEFAULT 'auto' -- 'auto' (from tax estimate ÷ months) | 'fixed' | 'off'
   tax_setaside_fixed_minor INTEGER
+  pension_contributing INTEGER      -- S4 (PLAN §4 S4, PHASE-9 §3); NULL=unanswered, 0/1 — NEVER
+                                     --   defaulted to 0, an unconfirmed pension gets asked, not assumed
+  fte_conversion_target_date TEXT   -- S4; NULL until set. Once set, seeds/re-dates the 'fte_runway'
+                                     --   goal row below (target_minor stays user-set, never invented)
   updated_at TEXT NOT NULL
 
 tax_config                          -- TAX.md §2 inputs; NULLs = unanswered open questions.
@@ -349,6 +354,56 @@ split_entries                       -- Warikan (only if PLAN §4 S3 accepted)
   settled INTEGER NOT NULL DEFAULT 0
   settled_at TEXT
 ```
+
+## 7a. Gift-occasion budgets & personal wants (goals 10-11, Phase 9)
+
+```sql
+gift_occasions                      -- goal 10 (PLAN §3 row 10) — a sinking-fund-style
+  id INTEGER PK                     --   budget per gift-giving occasion. label/limit/date are
+  user_id INTEGER NOT NULL REFERENCES users(id)  -- 100% user-entered, never seeded (PRIVATE.md)
+  label TEXT NOT NULL
+  limit_minor INTEGER               -- NULL = no limit set yet — never a fabricated £0 cap
+  target_date TEXT
+  created_at TEXT NOT NULL
+
+gift_items
+  id INTEGER PK
+  occasion_id INTEGER NOT NULL REFERENCES gift_occasions(id)
+  label TEXT NOT NULL
+  price_minor INTEGER NOT NULL
+  bought INTEGER NOT NULL DEFAULT 0
+  bought_date TEXT
+  created_at TEXT NOT NULL
+
+want_items                          -- goal 11 (PLAN §3 row 11, refined) — a personal-wants
+  id INTEGER PK                     --   wishlist item. The affordability verdict
+  user_id INTEGER NOT NULL REFERENCES users(id)  -- (engines/affordability.py) is always computed
+  label TEXT NOT NULL               -- live from goals+safe-to-spend, never stored here
+  price_minor INTEGER NOT NULL
+  bought INTEGER NOT NULL DEFAULT 0
+  created_at TEXT NOT NULL
+```
+
+### 7a-i. The affordability check (`engines/affordability.py`, pure)
+
+`check_affordability(price_minor, headroom_minor, goal_projection_before, goal_projection_after)`
+— composed from two already-computed figures, nothing new:
+
+1. If `price_minor <= headroom_minor` (this period's safe-to-spend remaining, for a want; an
+   occasion's own remaining budget excluding the item itself, for a gift item — same function,
+   different headroom) → `fits_now`.
+2. Otherwise run `engines/goals.project_goal` twice for the relevant active goal (`house_deposit`
+   for a want; gift items never touch a savings goal) — once at the current balance, once with
+   the price subtracted — and compare `status`/`catch_up_per_month_minor` before vs after. A
+   status downgrade (`on_track`→`behind`) or a bigger catch-up while already behind →
+   `not_yet`, with a weeks-delay estimate from the goal's own trend (ceiled, never flatters,
+   ARCHITECTURE §6) when a trend exists. Otherwise → `fits_from_spare_cash`.
+3. `unknown` when neither a headroom figure nor a goal exists yet (fresh setup state).
+
+`engines/gifts.occasion_summary(limit_minor, item_prices_minor)` is the separate, simpler
+aggregate for goal 10's own bubble content — `{spent_minor, limit_minor, remaining_minor,
+verdict: 'no_limit_set'|'under_limit'|'over_limit'}` — over-limit is calm information, not a
+guilt state (PLAN §6 rule 8).
 
 ## 8. Integrity rules
 

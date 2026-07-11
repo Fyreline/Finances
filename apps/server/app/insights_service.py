@@ -443,6 +443,20 @@ def _accessible_cash(session: Session, user_id: int) -> int:
     return total
 
 
+def accessible_cash_minor(session: Session, user_id: int) -> int:
+    """Public wrapper over `_accessible_cash` — reused by
+    `engines/emergency_fund.py`'s caller in `routers/accounts.py`
+    (docs/phases/PHASE-9-personal-goals.md §2) as well as the
+    `emergency_fund_low` tip above, so the two surfaces can never disagree
+    on what "accessible cash" means."""
+    return _accessible_cash(session, user_id)
+
+
+def essential_monthly_minor(session: Session, user_id: int, today: str) -> int:
+    """Public wrapper over `_essential_monthly` — see `accessible_cash_minor`."""
+    return _essential_monthly(session, user_id, today)
+
+
 def _has_rental_activity(session: Session, user_id: int) -> bool:
     if session.scalar(
         select(Transaction.id)

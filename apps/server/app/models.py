@@ -199,6 +199,13 @@ class FinancialConfig(Base):
     buffer_minor: Mapped[int] = mapped_column(nullable=False, server_default=text("15000"))
     tax_setaside_mode: Mapped[str] = mapped_column(nullable=False, server_default=text("'auto'"))
     tax_setaside_fixed_minor: Mapped[int | None] = mapped_column(nullable=True)
+    # S4 contractor gap (docs/phases/PHASE-9-personal-goals.md §3). Both NULL
+    # until the user answers — NEVER a false default (pension_contributing
+    # defaulting to 0 would silently assert "not paying in", which nobody
+    # has confirmed). fte_conversion_target_date, once set, seeds/updates the
+    # 'fte_runway' goal row (docs/DATA_MODEL.md §4) via routers/summary.py.
+    pension_contributing: Mapped[int | None] = mapped_column(nullable=True)  # NULL=unanswered, 0=no, 1=yes
+    fte_conversion_target_date: Mapped[str | None] = mapped_column(nullable=True)
     updated_at: Mapped[str] = mapped_column(nullable=False, server_default=NOW)
 
 
@@ -305,6 +312,55 @@ class Tip(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "rule_key", "period", name="uq_tips_user_rule_period"),
     )
+
+
+# ============ 8. Gift-occasion budgets & personal wants (docs/phases/PHASE-9-personal-goals.md §4-5) ============
+class GiftOccasion(Base):
+    """Goal 10 (docs/PLAN.md §3 row 10) — a sinking-fund-style budget for one
+    gift-giving occasion. `label`/`limit_minor`/`target_date` are 100%
+    user-entered at runtime; never seeded, never a real occasion name in a
+    fixture (docs/PRIVATE.md redaction scheme)."""
+
+    __tablename__ = "gift_occasions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    label: Mapped[str] = mapped_column(nullable=False)
+    limit_minor: Mapped[int | None] = mapped_column(nullable=True)  # NULL = no limit set yet, never invented
+    target_date: Mapped[str | None] = mapped_column(nullable=True)
+    created_at: Mapped[str] = mapped_column(nullable=False, server_default=NOW)
+
+
+class GiftItem(Base):
+    __tablename__ = "gift_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    occasion_id: Mapped[int] = mapped_column(ForeignKey("gift_occasions.id"), nullable=False)
+    label: Mapped[str] = mapped_column(nullable=False)
+    price_minor: Mapped[int] = mapped_column(nullable=False)
+    bought: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    bought_date: Mapped[str | None] = mapped_column(nullable=True)
+    created_at: Mapped[str] = mapped_column(nullable=False, server_default=NOW)
+
+    __table_args__ = (Index("idx_gift_items_occasion", "occasion_id"),)
+
+
+class WantItem(Base):
+    """Goal 11 (docs/PLAN.md §3 row 11) — a personal-wants wishlist item; the
+    affordability verdict (`engines/affordability.py`) is always computed
+    live, never stored, so it can never go stale against the goals/
+    safe-to-spend it reads."""
+
+    __tablename__ = "want_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    label: Mapped[str] = mapped_column(nullable=False)
+    price_minor: Mapped[int] = mapped_column(nullable=False)
+    bought: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    created_at: Mapped[str] = mapped_column(nullable=False, server_default=NOW)
+
+    __table_args__ = (Index("idx_want_items_user", "user_id"),)
 
 
 class SplitEntry(Base):

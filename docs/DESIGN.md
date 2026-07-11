@@ -155,8 +155,34 @@ Container `max-w-72rem`; CSS grid, gap 16px: 1 column <640px, 2 columns <1024px,
 | 5 | **Recurring** | 7 | `£214.50/mo committed` + `2 worth a look` (`oat` pill) + next-due line `Netflix · 3 Aug` | RecurringList (§4f) with verdict actions |
 | 6 | **Tax year 2026-27** | 8 | profit-so-far `£2,340` + `est. tax £491` (or `estimate needs 3 inputs` pill) + unreviewed-docs count; hosts the SA-deadline callout when live | TaxPage (§4g): Documents / Ledger / Estimate tabs |
 | 7 | **Savings deals** | 4 | best researched rate `4.60% AER · Coventry BS` + `checked 13 Jul` date (always) | DealsPage (§4h) |
-| 8 | **Net worth** (if S1 accepted) | 9 | total `£24,830` + 3-month sparkline + per-account dots | TrendLine detail + account list with include/exclude toggles |
-| 9 | **Splits** (if S3 accepted) | 9 | `Partner owes £23.40` / `even` + last entry line (real display name from config, PRIVATE.md) | Warikan ledger + settle action |
+| 8 | **Net worth** (S1 accepted, Phase 9) | 9 | total `£24,830` + 90-day sparkline + one dot per account | TrendLine + account breakdown list, **plus S2 (emergency fund) and S4 (contractor gap) folded in as two quiet sections** — see §3e below for why they live here rather than as their own bubbles |
+| 9 | **Wants & gifts** (goals 10-11, Phase 9) | 10, 11 | item count on the wants list + how many currently `fits now` + occasion count (any `over limit` flagged as calm information) | Internal tabs **Wants** / **Gifts** (same pattern as the Spending bubble's tabs) — an add-item form, an affordability pill per want item, and per-occasion cards with their own items + running total against the limit |
+| 10 | **Splits** (if S3 accepted) | 9 | `Partner owes £23.40` / `even` + last entry line (real display name from config, PRIVATE.md) | Warikan ledger + settle action |
+
+### 3e. Where S2 and S4 landed, and why (Phase 9)
+
+PHASE-9-personal-goals.md left the emergency-fund check (S2) and the contractor-gap card
+(S4) to implementer judgement between "their own small bubble" and "a line inside an
+existing detail view." Both landed inside the **Net Worth** bubble's detail view, not as
+new bubbles:
+
+- S2 (emergency fund) needs exactly the same accessible-cash figure Net Worth's account
+  breakdown already computes (current + savings accounts, excluding investments) — no new
+  data source, and PLAN.md §4 S2's own text calls it "a quiet dashboard card," not a
+  bubble in its own right.
+- S4 (contractor gap) is explicitly "a quiet card" per PLAN.md §4 S4's own wording; its
+  `fte_runway` goal, once a conversion date is set, reads through the ordinary goals
+  endpoints rather than inventing a new one, and pairs naturally with a screen that's
+  already about "the money you have."
+- Adding two more bubbles (10 total, after goals 10-11's "Wants & gifts" bubble) would
+  have pushed past what §3d calls "one hero figure plus at most three supporting
+  elements" territory for the home *screen* as a whole, not just one card — DESIGN.md's
+  own density principle extends naturally from "inside a bubble" to "how many bubbles."
+
+Detail views are allowed to go dense (§3d: "the desk opens its drawers"), so Net Worth's
+detail is now three stacked sections — trend chart + breakdown, emergency fund, contractor
+gap — each with its own `border-t` divider and mono section label, never crowding the
+collapsed glance (which still shows only the total + sparkline + account dots).
 
 Bubble order is user-arrangeable later (`settings_json.dashboard_tiles_order`); the
 default is the table order. A bubble whose integration is `not_configured` collapses

@@ -71,6 +71,46 @@ def test_financial_config_round_trip_and_validation(authed):
     assert put.json()["financial_config"]["payday_day"] == 28
 
 
+# ------------------------------------------------------- S4 contractor gap
+def test_financial_config_pension_and_fte_fields_default_unanswered(authed):
+    """docs/phases/PHASE-9-personal-goals.md §3 — NEVER a false default."""
+    client, user_id, headers = authed
+    got = client.get("/api/financial-config", headers=headers).json()["financial_config"]
+    assert got["pension_contributing"] is None
+    assert got["fte_conversion_target_date"] is None
+
+
+def test_setting_fte_conversion_target_date_seeds_the_fte_runway_goal(authed):
+    """docs/phases/PHASE-9-personal-goals.md §3: setting the date seeds a
+    goal (same table/engine as house_deposit) with no invented target
+    amount — the user sets that later via the existing goal PATCH."""
+    client, user_id, headers = authed
+    client.put(
+        "/api/financial-config",
+        headers=headers,
+        json={"pension_contributing": True, "fte_conversion_target_date": "2028-04-01"},
+    )
+    got = client.get("/api/financial-config", headers=headers).json()["financial_config"]
+    assert got["pension_contributing"] is True
+    assert got["fte_conversion_target_date"] == "2028-04-01"
+
+    goals = client.get("/api/goals", headers=headers).json()["goals"]
+    runway = next(g for g in goals if g["key"] == "fte_runway")
+    assert runway["target_date"] == "2028-04-01"
+    assert runway["target_minor"] is None  # never invented
+
+    # A later PATCH can set the real target amount — no new endpoint needed.
+    patched = client.patch("/api/goals/fte_runway", headers=headers, json={"target_minor": 500_000})
+    assert patched.json()["goal"]["target_minor"] == 500_000
+
+    # Re-dating via financial-config keeps the goal's target_date in sync.
+    client.put("/api/financial-config", headers=headers, json={"fte_conversion_target_date": "2028-10-01"})
+    goals_after = client.get("/api/goals", headers=headers).json()["goals"]
+    runway_after = next(g for g in goals_after if g["key"] == "fte_runway")
+    assert runway_after["target_date"] == "2028-10-01"
+    assert runway_after["target_minor"] == 500_000  # preserved, not reset
+
+
 # ---------------------------------------------------------------- safe-to-spend
 def test_safe_to_spend_setup_missing_then_live(authed):
     client, user_id, headers = authed
@@ -241,7 +281,19 @@ def test_bubbles_aggregate_matches_standalone_endpoints(authed):
     bubbles = client.get("/api/summary/bubbles", headers=headers).json()
 
     # every §3b roster bubble's data source is present in the one payload
-    for key in ("safe_to_spend", "goals", "month_summary", "tips_count", "recurring", "deals", "tax", "sync"):
+    for key in (
+        "safe_to_spend",
+        "goals",
+        "month_summary",
+        "tips_count",
+        "recurring",
+        "deals",
+        "net_worth",
+        "wants",
+        "gifts",
+        "tax",
+        "sync",
+    ):
         assert key in bubbles, f"missing {key}"
 
     assert bubbles["safe_to_spend"] == client.get("/api/summary/safe-to-spend", headers=headers).json()
@@ -251,6 +303,9 @@ def test_bubbles_aggregate_matches_standalone_endpoints(authed):
     assert bubbles["tips_count"] == len(client.get(f"/api/tips?period={month}", headers=headers).json()["tips"])
     assert bubbles["recurring"] == client.get("/api/recurring", headers=headers).json()
     assert bubbles["deals"] == client.get("/api/deals", headers=headers).json()
+    assert bubbles["net_worth"] == client.get("/api/networth", headers=headers).json()
+    assert bubbles["wants"] == client.get("/api/wants", headers=headers).json()
+    assert bubbles["gifts"] == client.get("/api/gifts/occasions", headers=headers).json()
     assert bubbles["sync"] == client.get("/api/sync/status", headers=headers).json()
 
     # tax glance: §3b row 6 shape — profit fact, honest null estimate with a
