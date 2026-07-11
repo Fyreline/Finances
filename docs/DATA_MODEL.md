@@ -181,7 +181,13 @@ Runs after every sync over outgoing, non-excluded transactions.
 
 Salary and rent arriving are detected the same way on **incoming** transactions
 (cadence monthly, amount stable) and offered as the income anchors for safe-to-spend
-(API.md §6a) rather than auto-assumed.
+(API.md §6a) rather than auto-assumed. **Phase 11 wired this in**: the detector now also
+returns each pattern's observed calendar-day `gaps_days`, and `insights_service.
+_detect_income_anchor` picks the single largest **monthly** incoming pattern (salary,
+distinct from smaller recurring refunds/interest, and from rental income which is summed
+separately) at/above the confidence floor. Its `last_seen` + `gaps_days` drive
+`insights.payday_period_from_detected` — the current period from real history, not a
+day-of-month rule — filling payday/income only when the user has not set them manually.
 
 ## 4. Goals & projections
 

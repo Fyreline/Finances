@@ -116,6 +116,9 @@ class DetectedRecurring:
     category_key: str | None
     earliest_amount_minor: int  # for the price-rise "old → new" tip
     latest_amount_minor: int
+    gaps_days: list[int]  # observed calendar-day gaps between consecutive occurrences
+    #                       (for payday_period_from_detected — an income anchor's
+    #                       real period comes from its own history, not a rule)
 
 
 def merchant_key(counterparty: str | None) -> str:
@@ -303,6 +306,7 @@ def detect_recurring(
                     category_key=category_key,
                     earliest_amount_minor=cluster[0].amount_minor,
                     latest_amount_minor=cluster[-1].amount_minor,
+                    gaps_days=gaps,
                 )
             )
 

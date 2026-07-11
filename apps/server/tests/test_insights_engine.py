@@ -3,14 +3,18 @@
 """
 from __future__ import annotations
 
+from datetime import date
+
 from app.engines.insights import (
     CategoryMonthInput,
     CommittedInput,
+    DetectedIncome,
     FinancialConfigLike,
     GoalSetAsideInput,
     months_to_next_31_jan,
     month_summary,
     payday_period,
+    payday_period_from_detected,
     safe_to_spend,
     tip_cancel_candidates,
     tip_category_trending_up,
@@ -45,6 +49,135 @@ def test_months_to_next_31_jan():
     assert months_to_next_31_jan("2026-07-15") == 6
     assert months_to_next_31_jan("2027-01-15") == 1  # never zero
     assert months_to_next_31_jan("2027-02-01") == 11
+
+
+# --------------------------------------- §6a Phase 11: detected payday period
+# Actual last-Friday-of-the-month dates through 2026 (Jan 30 … Jul 31): the
+# calendar-day gaps between them are 28/28/28/35/28/35 — clustered but not a
+# fixed day-of-month, exactly the pattern payday_day (a literal 1–31) can't
+# represent. Median gap 28 → a monthly-ish period, no weekday rule needed.
+_LAST_FRIDAY_GAPS = [28, 28, 28, 35, 28, 35]
+
+
+def test_payday_period_from_detected_current_period():
+    start, end = payday_period_from_detected(date(2026, 7, 31), _LAST_FRIDAY_GAPS, date(2026, 8, 5))
+    assert start.isoformat() == "2026-07-31"  # period starts at the last real salary
+    assert end.isoformat() == "2026-08-27"  # + median gap (28) - 1 day
+
+
+def test_payday_period_from_detected_rolls_forward_when_next_salary_not_synced_yet():
+    """A real, expected case: the app is opened a little into the next period
+    before the next salary transaction has synced — roll the window forward by
+    the median gap rather than reporting a stale, already-ended period."""
+    start, end = payday_period_from_detected(date(2026, 7, 31), _LAST_FRIDAY_GAPS, date(2026, 9, 10))
+    assert start.isoformat() == "2026-08-28"
+    assert end.isoformat() == "2026-09-24"
+
+
+def test_payday_period_from_detected_degenerate_gaps_never_zero_length():
+    start, end = payday_period_from_detected(date(2026, 7, 31), [0, 0], date(2026, 7, 31))
+    assert start == date(2026, 7, 31)
+    assert end == date(2026, 7, 31)  # a single day, never an inverted window
+
+
+def _detected(**kw) -> DetectedIncome:
+    base = dict(
+        net_income_minor=210_000,
+        last_seen=date(2026, 7, 31),
+        gaps_days=list(_LAST_FRIDAY_GAPS),
+        cadence="monthly",
+        occurrences=7,
+        confidence=0.9,
+        label="ACME PAYROLL",
+    )
+    base.update(kw)
+    return DetectedIncome(**base)
+
+
+def test_safe_to_spend_uses_detected_income_and_marks_it_detected():
+    """docs/phases/PHASE-11 acceptance: with no manual payday/income but a
+    confident salary anchor, the period + net income come from history and are
+    VISIBLY marked detected (never presented as if typed in)."""
+    result = safe_to_spend(
+        config=_config(payday_day=None, net_monthly_income_minor=None, flat_share_minor=0),
+        today="2026-08-05",
+        committed=[],
+        rental_income_minor=0,
+        goals=[],
+        discretionary_spent_minor=0,
+        annual_tax_estimate_minor=None,
+        detected_income=_detected(),
+    )
+    assert result.setup_missing == []
+    assert result.safe_to_spend_minor == 210_000 - 15_000  # income - buffer
+    assert result.net_income_minor == 210_000
+    assert result.payday_source == "detected"
+    assert result.net_income_source == "detected"
+    assert result.period_start == "2026-07-31" and result.period_end == "2026-08-27"
+    # human-auditable detail, not a raw opaque number
+    assert result.detected_income["label"] == "ACME PAYROLL"
+    assert result.detected_income["median_gap_days"] == 28
+    assert result.detected_income["typical_amount_minor"] == 210_000
+    assert result.detected_income["confidence"] == 0.9
+
+
+def test_manual_config_always_wins_over_detection():
+    """docs/phases/PHASE-11 §2: an explicitly set payday/income is used exactly
+    as before and reported 'manual' — a detection never overrides it."""
+    result = safe_to_spend(
+        config=_config(payday_day=28, net_monthly_income_minor=250_000, flat_share_minor=0),
+        today="2026-07-15",
+        committed=[],
+        rental_income_minor=0,
+        goals=[],
+        discretionary_spent_minor=0,
+        annual_tax_estimate_minor=None,
+        detected_income=_detected(net_income_minor=999_999, last_seen=date(2026, 7, 31)),
+    )
+    assert result.payday_source == "manual"
+    assert result.net_income_source == "manual"
+    assert result.net_income_minor == 250_000  # NOT the detected 999,999
+    assert result.period_start == "2026-06-28"  # manual payday_day=28, not detected 31
+    assert result.detected_income is None  # nothing detected was used
+
+
+def test_manual_payday_but_detected_income_is_per_field():
+    """Manual and detected can coexist per-field: a manually set payday with an
+    unset income still borrows the detected income (and says so)."""
+    result = safe_to_spend(
+        config=_config(payday_day=28, net_monthly_income_minor=None, flat_share_minor=0),
+        today="2026-07-15",
+        committed=[],
+        rental_income_minor=0,
+        goals=[],
+        discretionary_spent_minor=0,
+        annual_tax_estimate_minor=None,
+        detected_income=_detected(net_income_minor=210_000),
+    )
+    assert result.payday_source == "manual"
+    assert result.net_income_source == "detected"
+    assert result.net_income_minor == 210_000
+    assert result.period_start == "2026-06-28"  # manual payday still wins for the period
+
+
+def test_safe_to_spend_setup_missing_when_neither_manual_nor_detected():
+    """A brand-new account: no manual config, no detectable salary yet → the
+    setup_missing fallback must not regress, and both sources are null."""
+    result = safe_to_spend(
+        config=_config(payday_day=None, net_monthly_income_minor=None),
+        today="2026-07-15",
+        committed=[],
+        rental_income_minor=0,
+        goals=[],
+        discretionary_spent_minor=0,
+        annual_tax_estimate_minor=None,
+        detected_income=None,
+    )
+    assert result.safe_to_spend_minor is None
+    assert result.setup_missing == ["payday_day", "net_monthly_income"]
+    assert result.payday_source is None
+    assert result.net_income_source is None
+    assert result.detected_income is None
 
 
 def _config(**kw) -> FinancialConfigLike:

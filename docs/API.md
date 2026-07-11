@@ -368,8 +368,12 @@ GET  /api/health → {status:"ok", identity:"reachable"|"unreachable",
 
 ### 6a. Safe-to-spend (goal 1) — `GET /api/summary/safe-to-spend`
 
-Month = payday-anchored: from `financial_config.payday_day` of one month to the day
-before the next. All figures pence:
+Month = payday-anchored. The period comes from `financial_config.payday_day` when set
+manually; **otherwise (Phase 11) from a detected salary anchor's own transaction
+history** — `period_start` = the most recent detected salary date, `period_end` =
+`+ median(observed gaps) − 1`, rolled forward by the median gap if `today` has already
+passed it. This represents "last Friday of the month" (a different day-of-month each
+month) that the literal 1–31 `payday_day` cannot. All figures pence:
 
 ```
 income        = net_monthly_income (config) + confirmed rental income landing this period
@@ -398,8 +402,23 @@ safe_to_spend = income − committed − goal_set_aside − tax_set_aside − bu
 Response: every line above (so the UI can show the waterfall, DESIGN.md §4a), plus
 `spent_so_far_minor` (discretionary categories this period), `remaining_minor`,
 `per_day_remaining_minor` (remaining ÷ days left, floor), `period:{start, end}`, and
-`setup_missing:[...]` — payday/income unset ⇒ the endpoint returns the setup list
-instead of pretending (`safe_to_spend: null`).
+`setup_missing:[...]` — payday/income neither set manually **nor confidently detected**
+⇒ the endpoint returns the setup list instead of pretending (`safe_to_spend: null`).
+
+**Provenance (Phase 11)** — the response also carries, per field:
+`payday_source` / `net_income_source` ∈ `'manual' | 'detected' | null`. **Manual always
+wins**: an explicitly set `payday_day` / `net_monthly_income_minor` is used exactly as
+before and reported `'manual'`; a detection only fills a field the user left unset and
+is reported `'detected'`. When a detected source is used, `detected_income` carries the
+human-readable why — `{label, typical_amount_minor, cadence, median_gap_days,
+occurrences, confidence, last_seen}` — so the UI can say "worked out from a recurring
+payment from X averaging £Y, roughly every N days" and offer an override, never presenting
+an inferred figure as if typed in. `detected_income` is `null` when both fields are
+manual or still in setup. **No schema change**: this is pure computation over the
+already-synced `transactions` — `financial_config` gains no columns. The income anchor
+is the single largest **monthly** incoming recurring pattern at/above the confidence
+floor (salary), detected by the same `engines/recurring.py` machinery as outgoings via
+its long-present `direction="in"` path.
 
 ### 6b. Monthly breakdown + verdicts (goal 5) — `GET /api/summary/month/{yyyy-mm}`
 

@@ -326,8 +326,24 @@ export interface SafeToSpend {
   per_day_remaining_minor: number | null
   period: { start: string | null; end: string | null }
   days_left: number | null
+  // Phase 11 provenance: where payday/income came from. 'detected' means
+  // inferred from transaction history (show it as a guess to override), null
+  // while still in setup. `detected_income` carries the human-readable why.
+  payday_source: 'manual' | 'detected' | null
+  net_income_source: 'manual' | 'detected' | null
+  detected_income: DetectedIncome | null
   committed_items: CommittedItem[]
   goal_items: GoalSetAsideItem[]
+}
+
+export interface DetectedIncome {
+  label: string
+  typical_amount_minor: number
+  cadence: string
+  median_gap_days: number | null
+  occurrences: number
+  confidence: number
+  last_seen: string
 }
 
 export type BenchmarkBand = 'maintainable' | 'average' | 'above_average'

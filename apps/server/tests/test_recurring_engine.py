@@ -178,3 +178,16 @@ def test_salary_detected_on_incoming():
     assert len(detected) == 1
     assert detected[0].cadence == "monthly"
     assert detected[0].typical_amount_minor == 250000  # positive (incoming)
+
+
+def test_income_anchor_carries_observed_gaps():
+    """Phase 11: a detected anchor exposes its real calendar-day gaps so the
+    current payday period can be derived from history, not a day-of-month
+    rule. Last-Fridays here are 28/28 days apart."""
+    txns = [
+        _tx("2026-05-29", 210000, "ACME PAYROLL"),
+        _tx("2026-06-26", 210000, "ACME PAYROLL"),
+        _tx("2026-07-31", 210000, "ACME PAYROLL"),
+    ]
+    detected = detect_recurring(txns, as_of=AS_OF, direction="in")
+    assert detected[0].gaps_days == [28, 35]  # 29 May→26 Jun, 26 Jun→31 Jul

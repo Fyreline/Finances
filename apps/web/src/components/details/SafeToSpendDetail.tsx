@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type FinancialConfig } from '../../api'
+import { api, type FinancialConfig, type SafeToSpend } from '../../api'
 import { safeToSpendSegments, WaterfallStrip } from '../../charts/WaterfallStrip'
 import { useSafeToSpend } from '../../hooks/useSafeToSpend'
 import { formatMinor, MONEY_CLASS, poundsToMinor } from '../../money'
@@ -25,6 +25,39 @@ function FormulaRow({ label, minor, op, strong }: { label: string; minor: number
         {label}
       </span>
       <span className={`text-[13px] ${MONEY_CLASS} ${crimson ? 'text-over' : 'text-ink'}`}>{formatMinor(minor)}</span>
+    </div>
+  )
+}
+
+/** Phase 11: when payday and/or income were inferred from transaction history
+ * rather than typed in, say so plainly and offer an obvious override — a
+ * detected figure is a calm, labelled guess, never presented as fact
+ * (docs/phases/PHASE-11-payday-autodetect.md §4). */
+function DetectedBanner({ data, onOverride }: { data: SafeToSpend; onOverride: () => void }) {
+  const paydayDetected = data.payday_source === 'detected'
+  const incomeDetected = data.net_income_source === 'detected'
+  if (!paydayDetected && !incomeDetected) return null
+
+  const d = data.detected_income
+  const what = paydayDetected && incomeDetected ? 'Payday and take-home pay are' : paydayDetected ? 'Payday is' : 'Take-home pay is'
+  const gap = d?.median_gap_days ? `about every ${d.median_gap_days} days` : 'on a regular cadence'
+  const amount = d ? formatMinor(d.typical_amount_minor) : ''
+
+  return (
+    <div className="space-y-2 rounded-lg border border-line bg-oat/40 p-3">
+      <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">Worked out from your history</p>
+      <p className="text-[13px] text-ink-mid">
+        {what} worked out from a recurring payment{d ? <> from <span className="text-ink">{d.label}</span></> : null}
+        {d ? <> averaging {amount}, arriving {gap}</> : null}. These are informed guesses, not something you told
+        Kakeibo — override below if they are wrong.
+      </p>
+      <button
+        type="button"
+        onClick={onOverride}
+        className="font-mono text-[11px] uppercase tracking-[0.08em] text-clay-deep underline-offset-2 hover:underline"
+      >
+        Set these myself
+      </button>
     </div>
   )
 }
@@ -184,6 +217,8 @@ export function SafeToSpendDetail() {
           {formatMinor(data.per_day_remaining_minor ?? 0)}/day for the next {data.days_left ?? 0} days
         </p>
       </div>
+
+      <DetectedBanner data={data} onOverride={() => setShowSettings(true)} />
 
       <WaterfallStrip segments={safeToSpendSegments(data)} totalMinor={data.income_minor} />
 

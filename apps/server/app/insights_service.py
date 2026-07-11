@@ -359,6 +359,50 @@ def _current_year_tax_estimate(session: Session, user_id: int, today: str) -> in
     return estimate["tax_due_minor"] if estimate else None
 
 
+def _detect_income_anchor(session: Session, user_id: int, as_of: str) -> insights.DetectedIncome | None:
+    """Pick the single best salary anchor from detected *incoming* recurring
+    patterns (docs/phases/PHASE-11-payday-autodetect.md §2). This is the wiring
+    that was always missing: `recurring.detect_recurring(..., direction="in")`
+    has always supported income anchors, but nothing called it.
+
+    Selection heuristic (documented so it is auditable, not a black box):
+
+    - Detect incoming recurring patterns the same way outgoings are detected
+      (same clustering/cadence/confidence thresholds — no new numbers invented).
+    - Keep only **monthly** cadence at or above the existing confidence floor
+      (`recurring._CONFIDENCE_FLOOR`). Monthly because `net_monthly_income`
+      must mean a *monthly* figure — a weekly anchor's typical amount is a
+      weekly sum and would misrepresent it. Monthly's 28–33 day window already
+      absorbs "last Friday of the month" (its calendar-day gaps cluster there).
+    - Among those, take the one with **by far the largest typical amount** —
+      salary, distinct from the smaller recurring incoming amounts (refunds,
+      interest, and — deliberately — rental income, which is smaller here and
+      is summed separately by `_period_rental_income`, never folded into the
+      salary figure).
+
+    Returns `None` when there is no confident monthly income anchor yet (a new
+    account, or too little/too irregular history) — the caller then falls back
+    to `setup_missing`, never a guessed number."""
+    detected = recurring.detect_recurring(_load_txns(session, user_id), as_of=as_of, direction="in")
+    candidates = [
+        d
+        for d in detected
+        if d.cadence == "monthly" and d.confidence >= recurring._CONFIDENCE_FLOOR
+    ]
+    if not candidates:
+        return None
+    best = max(candidates, key=lambda d: d.typical_amount_minor)
+    return insights.DetectedIncome(
+        net_income_minor=best.typical_amount_minor,  # positive (incoming)
+        last_seen=datetime.strptime(best.last_seen, "%Y-%m-%d").date(),
+        gaps_days=best.gaps_days,
+        cadence=best.cadence,
+        occurrences=best.occurrences,
+        confidence=best.confidence,
+        label=best.label,
+    )
+
+
 def safe_to_spend_payload(session: Session, user_id: int, *, today: str | None = None) -> dict:
     """docs/API.md §6a GET /api/summary/safe-to-spend."""
     today = today or _today_str()
@@ -370,14 +414,20 @@ def safe_to_spend_payload(session: Session, user_id: int, *, today: str | None =
         monthly = abs(recurring.monthly_equivalent_minor(d.typical_amount_minor, d.cadence))
         committed.append(insights.CommittedInput(label=d.label, monthly_equivalent_minor=monthly))
 
-    goals = _goal_setaside_inputs(session, user_id, today) if config.payday_day is not None else []
+    # Detect a salary anchor to fill payday/income the user hasn't set manually
+    # (manual always wins — the engine only uses this for unset fields).
+    detected_income = _detect_income_anchor(session, user_id, today)
 
-    # Period-scoped figures need the period, which needs a payday — only
-    # compute them once we know we're past setup.
+    # The period can now come from either a manual payday or the detected
+    # anchor's own history — resolve it once, so the period-scoped figures and
+    # the engine agree.
+    period = insights.resolve_period(config, today, detected_income)
+    goals = _goal_setaside_inputs(session, user_id, today) if period is not None else []
+
     rental_income = 0
     discretionary_spent = 0
-    if config.payday_day is not None:
-        start, end = insights.payday_period(today, config.payday_day)
+    if period is not None:
+        start, end = period
         rental_income = _period_rental_income(session, user_id, start, end)
         discretionary_spent = _period_discretionary_spent(session, user_id, start, end)
 
@@ -389,6 +439,7 @@ def safe_to_spend_payload(session: Session, user_id: int, *, today: str | None =
         goals=goals,
         discretionary_spent_minor=discretionary_spent,
         annual_tax_estimate_minor=_current_year_tax_estimate(session, user_id, today),
+        detected_income=detected_income,
     )
     return {
         "safe_to_spend_minor": result.safe_to_spend_minor,
@@ -405,6 +456,9 @@ def safe_to_spend_payload(session: Session, user_id: int, *, today: str | None =
         "per_day_remaining_minor": result.per_day_remaining_minor,
         "period": {"start": result.period_start, "end": result.period_end},
         "days_left": result.days_left,
+        "payday_source": result.payday_source,
+        "net_income_source": result.net_income_source,
+        "detected_income": result.detected_income,
         "committed_items": result.committed_items,
         "goal_items": result.goal_items,
     }

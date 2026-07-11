@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 
 from .benchmarks import METHODOLOGY_NOTE, benchmark_for
 
@@ -78,6 +78,39 @@ def payday_period(today: str | date, payday_day: int) -> tuple[date, date]:
     return start, nxt - timedelta(days=1)
 
 
+def payday_period_from_detected(
+    last_seen: str | date,
+    occurrences_gaps_days: list[int],
+    today: str | date,
+) -> tuple[date, date]:
+    """The current payday period derived from a detected salary anchor's own
+    observed history, rather than a modelled day-of-month rule (docs/phases/
+    PHASE-11-payday-autodetect.md §1).
+
+    `period_start` = the most recent detected salary transaction's date
+    (`last_seen`); `period_end` = `period_start + median(gaps) - 1`, rolled
+    forward by the same median gap repeatedly while `today` has already passed
+    that estimated end (covers "opened the app a little into the next period
+    before the next real salary transaction has synced" — a real, expected
+    case, not an edge case).
+
+    This deliberately does NOT model "last Friday of the month" as a weekday
+    rule: the actual calendar-day gaps between consecutive real last-Friday
+    salary dates already cluster in the same 28–33 day window as any monthly
+    cadence, so median-gap-of-real-observations handles last-Friday, weekly,
+    and roughly-monthly patterns uniformly, with no special case."""
+    start = _parse(last_seen)
+    t = _parse(today)
+    med = round(median(occurrences_gaps_days)) if occurrences_gaps_days else 30
+    if med < 1:  # degenerate (all occurrences on one day) — never zero-length
+        med = 1
+    end = start + timedelta(days=med - 1)
+    while t > end:
+        start = start + timedelta(days=med)
+        end = start + timedelta(days=med - 1)
+    return start, end
+
+
 def months_to_next_31_jan(today: str | date) -> int:
     """Whole months from `today` to the next 31 January (the SA payment
     deadline) — the divisor for the 'auto' tax set-aside (docs/API.md §6a).
@@ -100,6 +133,22 @@ class FinancialConfigLike:
     buffer_minor: int
     tax_setaside_mode: str  # 'auto' | 'fixed' | 'off'
     tax_setaside_fixed_minor: int | None
+
+
+@dataclass(frozen=True)
+class DetectedIncome:
+    """A salary anchor detected from real incoming transaction history
+    (docs/phases/PHASE-11-payday-autodetect.md). Offered as the payday-period
+    and net-income source when the user has NOT set those manually — always
+    surfaced as `detected`, never silently presented as a typed-in figure."""
+
+    net_income_minor: int  # the anchor's typical amount (positive magnitude)
+    last_seen: date  # most recent detected salary transaction date
+    gaps_days: list[int]  # observed calendar-day gaps between occurrences
+    cadence: str
+    occurrences: int
+    confidence: float
+    label: str  # freshest counterparty display name (e.g. the payroll name)
 
 
 @dataclass(frozen=True)
@@ -133,6 +182,12 @@ class SafeToSpendResult:
     period_start: str | None
     period_end: str | None
     days_left: int | None
+    # Provenance — the entire point of Phase 11: a figure the UI can trust to
+    # label "you told us this" (manual) vs "we inferred this from your history"
+    # (detected), or null while neither applies yet (setup_missing).
+    payday_source: str | None = None  # 'manual' | 'detected' | None
+    net_income_source: str | None = None  # 'manual' | 'detected' | None
+    detected_income: dict | None = None  # human-readable detail when detected
     committed_items: list[dict] = field(default_factory=list)
     goal_items: list[dict] = field(default_factory=list)
 
@@ -165,6 +220,24 @@ def _goal_contribution(goal: GoalSetAsideInput) -> int:
     return 0
 
 
+def resolve_period(
+    config: FinancialConfigLike,
+    today: str | date,
+    detected_income: DetectedIncome | None,
+) -> tuple[date, date] | None:
+    """The current payday-anchored period, choosing the source the same way
+    `safe_to_spend` does so period-scoped figures (rental income, discretionary
+    spend) computed in the service layer can never disagree with the engine
+    (docs/phases/PHASE-11-payday-autodetect.md §2). Manual `payday_day` wins;
+    else a detected income anchor's own history; else `None` (period unknown —
+    still in setup). Deterministic, so calling it twice gives the same window."""
+    if config.payday_day is not None:
+        return payday_period(today, config.payday_day)
+    if detected_income is not None:
+        return payday_period_from_detected(detected_income.last_seen, detected_income.gaps_days, today)
+    return None
+
+
 def safe_to_spend(
     *,
     config: FinancialConfigLike,
@@ -174,17 +247,50 @@ def safe_to_spend(
     goals: list[GoalSetAsideInput],
     discretionary_spent_minor: int,
     annual_tax_estimate_minor: int | None,
+    detected_income: DetectedIncome | None = None,
 ) -> SafeToSpendResult:
     """docs/API.md §6a in one function. Returns `setup_missing` (and
-    `safe_to_spend_minor=None`) when payday or take-home pay is unset, rather
-    than pretending with defaults (docs/phases/PHASE-4-insights.md item 1).
-    Otherwise every formula line is returned so the UI can draw the waterfall,
-    and the segments (committed, goals, tax, buffer, spent, remaining) sum
-    pence-exact to income by construction."""
+    `safe_to_spend_minor=None`) when payday or take-home pay is neither set
+    manually nor confidently detected, rather than pretending with defaults
+    (docs/phases/PHASE-4-insights.md item 1). Otherwise every formula line is
+    returned so the UI can draw the waterfall, and the segments (committed,
+    goals, tax, buffer, spent, remaining) sum pence-exact to income by
+    construction.
+
+    Provenance (Phase 11): each of payday and net income resolves manual →
+    detected → missing, per-field. **Manual always wins** — an explicitly set
+    `payday_day`/`net_monthly_income_minor` is used exactly as before and its
+    source is reported `'manual'`, never overridden by a detection. A detected
+    salary anchor (`detected_income`) fills only the fields the user left
+    unset, and is always surfaced as `'detected'` with an auditable detail
+    block — never silently presented as a typed-in figure."""
+    # Per-field provenance: manual beats detected beats absent.
+    payday_source = (
+        "manual" if config.payday_day is not None else ("detected" if detected_income is not None else None)
+    )
+    net_income_source = (
+        "manual"
+        if config.net_monthly_income_minor is not None
+        else ("detected" if detected_income is not None else None)
+    )
+
+    detected_detail: dict | None = None
+    if detected_income is not None and "detected" in (payday_source, net_income_source):
+        med_gap = round(median(detected_income.gaps_days)) if detected_income.gaps_days else None
+        detected_detail = {
+            "label": detected_income.label,
+            "typical_amount_minor": detected_income.net_income_minor,
+            "cadence": detected_income.cadence,
+            "median_gap_days": med_gap,
+            "occurrences": detected_income.occurrences,
+            "confidence": detected_income.confidence,
+            "last_seen": _parse(detected_income.last_seen).strftime(_DATE_FMT),
+        }
+
     setup_missing: list[str] = []
-    if config.payday_day is None:
+    if payday_source is None:
         setup_missing.append("payday_day")
-    if config.net_monthly_income_minor is None:
+    if net_income_source is None:
         setup_missing.append("net_monthly_income")
     if setup_missing:
         return SafeToSpendResult(
@@ -203,10 +309,16 @@ def safe_to_spend(
             period_start=None,
             period_end=None,
             days_left=None,
+            payday_source=payday_source,
+            net_income_source=net_income_source,
+            detected_income=detected_detail,
         )
 
-    assert config.payday_day is not None and config.net_monthly_income_minor is not None
-    net_income = config.net_monthly_income_minor
+    net_income = (
+        config.net_monthly_income_minor
+        if config.net_monthly_income_minor is not None
+        else detected_income.net_income_minor  # type: ignore[union-attr]
+    )
     income = net_income + rental_income_minor
 
     committed_total = sum(c.monthly_equivalent_minor for c in committed)
@@ -233,7 +345,9 @@ def safe_to_spend(
     safe = income - committed_total - goal_set_aside - tax_set_aside - buffer
     remaining = safe - discretionary_spent_minor
 
-    start, end = payday_period(today, config.payday_day)
+    period = resolve_period(config, today, detected_income)
+    assert period is not None  # guaranteed: payday_source is set past setup_missing
+    start, end = period
     days_left = (end - _parse(today)).days + 1  # inclusive of today
     # Python's // floors toward −∞, which is exactly "floor" for a positive
     # remaining and stays honest (never flatters) for a negative one.
@@ -255,6 +369,9 @@ def safe_to_spend(
         period_start=start.strftime(_DATE_FMT),
         period_end=end.strftime(_DATE_FMT),
         days_left=max(0, days_left),
+        payday_source=payday_source,
+        net_income_source=net_income_source,
+        detected_income=detected_detail,
         committed_items=[{"label": c.label, "monthly_equivalent_minor": c.monthly_equivalent_minor} for c in committed_items],
         goal_items=goal_items,
     )

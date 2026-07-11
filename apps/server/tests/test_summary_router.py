@@ -182,6 +182,125 @@ def test_safe_to_spend_tax_setaside_uses_live_estimate(authed):
     assert segments == live["income_minor"]
 
 
+# ------------------------------------------- Phase 11: detected payday + income
+# Last-Fridays of 2026 (Jan 30 … Jul 31): a clustered-but-not-fixed payday the
+# literal payday_day 1–31 can't represent. Amounts synthetic (docs/PRIVATE.md).
+_LAST_FRIDAYS_2026 = ("2026-01-30", "2026-02-27", "2026-03-27", "2026-04-24", "2026-05-29", "2026-06-26", "2026-07-31")
+_SYNTH_SALARY_MINOR = 210_000
+
+
+def _seed_salary_history(account_id: int) -> None:
+    for i, d in enumerate(_LAST_FRIDAYS_2026):
+        _seed_txn(account_id, f"pay-{i}", amount_minor=_SYNTH_SALARY_MINOR, local_date=d, counterparty="ACME PAYROLL", category_key=None)
+
+
+def _safe_to_spend(user_id: int, today: str) -> dict:
+    """Read the §6a payload at a fixed `today` (deterministic period dates)
+    without exposing a `today` override on the public HTTP endpoint — the
+    service already parameterises it for exactly this."""
+    from app.insights_service import safe_to_spend_payload
+
+    with SessionLocal() as session:
+        return safe_to_spend_payload(session, user_id, today=today)
+
+
+def test_safe_to_spend_detects_payday_and_income_from_history(authed):
+    """docs/phases/PHASE-11 acceptance: 3+ monthly incoming salary transactions
+    on irregular-but-clustered dates (last-Friday, no hardcoded rule) produce a
+    sensible detected period and net income, visibly marked detected — with NO
+    manual financial-config set at all."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_salary_history(account_id)
+
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["setup_missing"] == []
+    assert s["safe_to_spend_minor"] is not None
+    assert s["net_income_minor"] == _SYNTH_SALARY_MINOR
+    assert s["payday_source"] == "detected"
+    assert s["net_income_source"] == "detected"
+    # period derived from the anchor's own history (last salary 31 Jul, ~28d gap)
+    assert s["period"]["start"] == "2026-07-31"
+    assert s["period"]["end"] == "2026-08-27"
+    # human-auditable provenance detail, not an opaque number
+    assert s["detected_income"]["label"] == "ACME PAYROLL"
+    assert s["detected_income"]["median_gap_days"] == 28
+    assert s["detected_income"]["typical_amount_minor"] == _SYNTH_SALARY_MINOR
+
+
+def test_manual_config_wins_over_detection_and_stays_won(authed):
+    """docs/phases/PHASE-11 §2/§4 + acceptance: explicitly setting payday_day
+    server-side flips payday_source to 'manual' and the detected path never
+    overrides it again, even with a full salary history present."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_salary_history(account_id)
+
+    # Before manual config: detection drives it.
+    assert _safe_to_spend(user_id, "2026-08-05")["payday_source"] == "detected"
+
+    # Now the user sets payday_day AND income manually (through the real HTTP PUT).
+    client.put(
+        "/api/financial-config",
+        headers=headers,
+        json={"payday_day": 15, "net_monthly_income_minor": 300_000},
+    )
+    after = _safe_to_spend(user_id, "2026-08-05")
+    assert after["payday_source"] == "manual"
+    assert after["net_income_source"] == "manual"
+    assert after["net_income_minor"] == 300_000  # not the detected 210,000
+    assert after["period"]["start"] == "2026-07-15"  # manual payday_day=15, not detected 31
+    assert after["detected_income"] is None
+
+    # Re-computing at a later date keeps manual winning (stays won).
+    again = _safe_to_spend(user_id, "2026-09-01")
+    assert again["payday_source"] == "manual"
+    assert again["net_income_source"] == "manual"
+
+
+def test_fresh_account_with_no_income_history_falls_back_to_setup_missing(authed):
+    """docs/phases/PHASE-11 acceptance: a brand-new account with no detectable
+    salary still returns setup_missing — this must never regress."""
+    client, user_id, headers = authed
+    _seed_account(user_id)  # account but no salary transactions
+    s = client.get("/api/summary/safe-to-spend", headers=headers).json()
+    assert s["safe_to_spend_minor"] is None
+    assert "payday_day" in s["setup_missing"]
+    assert s["payday_source"] is None
+    assert s["net_income_source"] is None
+    assert s["detected_income"] is None
+
+
+def test_committed_and_rental_still_work_in_detected_path(authed):
+    """Regression guard for the two already-working pieces (docs/phases/PHASE-11
+    "don't regress"): committed-cost auto-detection and rental-income summing
+    must still function when payday/income come from detection rather than
+    manual config."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_salary_history(account_id)
+    # A committed outgoing (detected recurring) landing in the detected period.
+    for i, month in enumerate(("2026-05", "2026-06", "2026-07", "2026-08")):
+        _seed_txn(account_id, f"gym-{i}", amount_minor=-3000, local_date=f"{month}-02", counterparty="PURE GYM", category_key="subscriptions")
+    # A rental transfer inside the detected 31 Jul–27 Aug window, is_rental tagged.
+    with SessionLocal() as session:
+        session.add(
+            Transaction(
+                account_id=account_id, provider_uid="rent-1", amount_minor=95_000,
+                transaction_time="2026-08-05T12:00:00.000Z", local_date="2026-08-05", settled=1,
+                counterparty="LETTING AGENT", reference="", provider_category=None,
+                category_id=None, category_source="provider", is_rental=1, raw_json="{}",
+            )
+        )
+        session.commit()
+
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["payday_source"] == "detected"
+    assert s["committed_minor"] >= 3000  # the detected gym sub is committed
+    assert s["rental_income_minor"] == 95_000  # rental summed inside the detected period
+    assert s["income_minor"] == _SYNTH_SALARY_MINOR + 95_000
+
+
 # ---------------------------------------------------------------- month summary
 def test_month_summary_verdict_pill_kraft_not_crimson(authed):
     """A category ~25% over its band → above_average, not severe (kraft, not
