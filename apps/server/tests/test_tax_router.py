@@ -85,6 +85,55 @@ def test_summary_computes_worked_example_and_excludes_mortgage_and_capital(authe
     assert any("2026-27" in a for a in est["assumptions"])
 
 
+# --------------------------------------------------------------------------- #
+#  Mortgage rate × balance fallback (docs/phases/PHASE-10-post-launch-fixes.md #
+#  item 6, docs/TAX.md §5a) — an honest, visibly-flagged estimate when the     #
+#  exact certificate figure isn't known.                                      #
+# --------------------------------------------------------------------------- #
+def test_mortgage_rate_and_balance_alone_produces_flagged_estimate(authed):
+    client, _uid, headers = authed
+    _put_config(
+        client,
+        headers,
+        has_mortgage=1,
+        mortgage_rate_pct=5.0,
+        mortgage_balance_minor=72_000_00,  # £72,000 outstanding
+        employment_gross_annual_minor=4_800_000,
+    )
+    _add_ledger(client, headers, local_date="2026-06-01", kind="income", amount_minor=1_020_000)
+
+    body = client.get("/api/tax/years/2026-27/summary", headers=headers).json()
+    # missing_inputs no longer flags the mortgage-interest question — an
+    # estimate now exists, so the estimator doesn't refuse to compute.
+    assert body["missing_inputs"] == []
+    est = body["estimate"]
+    assert est is not None
+    # round(£72,000 * 5% ) = £3,600 exactly, feeding the same S24 base as the
+    # exact-certificate worked example above.
+    assert est["comparison"]["expenses_plus_s24"]["finance_costs_minor"] == 360_000
+    assert any("rate × balance" in a for a in est["assumptions"])
+
+
+def test_exact_mortgage_interest_wins_over_rate_and_balance(authed):
+    client, _uid, headers = authed
+    _put_config(
+        client,
+        headers,
+        has_mortgage=1,
+        annual_mortgage_interest_minor=100_000,  # exact certificate: £1,000
+        mortgage_rate_pct=5.0,
+        mortgage_balance_minor=72_000_00,  # would estimate £3,600 if used
+        employment_gross_annual_minor=4_800_000,
+    )
+    _add_ledger(client, headers, local_date="2026-06-01", kind="income", amount_minor=1_020_000)
+
+    body = client.get("/api/tax/years/2026-27/summary", headers=headers).json()
+    est = body["estimate"]
+    assert est is not None
+    assert est["comparison"]["expenses_plus_s24"]["finance_costs_minor"] == 100_000
+    assert not any("rate × balance" in a for a in est["assumptions"])
+
+
 def test_ground_rent_only_allowable_when_leasehold(authed):
     client, _uid, headers = authed
     _put_config(client, headers, has_mortgage=0, employment_gross_annual_minor=4_800_000, is_leasehold=0)

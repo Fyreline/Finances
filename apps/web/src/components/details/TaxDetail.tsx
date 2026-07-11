@@ -234,7 +234,11 @@ function EstimatePanel({ estimate }: { estimate: TaxEstimate }) {
 
 // ------------------------------------------------------------------- Config
 type FlagField = 'has_mortgage' | 'is_leasehold' | 'registered_for_sa'
-type MoneyField = 'annual_mortgage_interest_minor' | 'employment_gross_annual_minor' | 'monthly_rent_minor'
+type MoneyField =
+  | 'annual_mortgage_interest_minor'
+  | 'employment_gross_annual_minor'
+  | 'monthly_rent_minor'
+  | 'mortgage_balance_minor'
 
 function ConfigForm({ config, onSaved }: { config: TaxConfig; onSaved: (c: TaxConfig) => void }) {
   const [draft, setDraft] = useState(config)
@@ -243,6 +247,9 @@ function ConfigForm({ config, onSaved }: { config: TaxConfig; onSaved: (c: TaxCo
   const setFlag = (field: FlagField, value: number | null) => setDraft({ ...draft, [field]: value })
   const setMoney = (field: MoneyField, pounds: string) =>
     setDraft({ ...draft, [field]: pounds === '' ? null : Math.round(parseFloat(pounds) * 100) })
+  // A genuine percentage, not money — never coerced through the pence path
+  // (docs/PLAN.md §6, docs/phases/PHASE-10-post-launch-fixes.md item 6).
+  const setRatePct = (pct: string) => setDraft({ ...draft, mortgage_rate_pct: pct === '' ? null : parseFloat(pct) })
 
   const save = async () => {
     setSaving(true)
@@ -250,6 +257,8 @@ function ConfigForm({ config, onSaved }: { config: TaxConfig; onSaved: (c: TaxCo
       const res = await api.putTaxConfig({
         has_mortgage: draft.has_mortgage,
         annual_mortgage_interest_minor: draft.annual_mortgage_interest_minor,
+        mortgage_rate_pct: draft.mortgage_rate_pct,
+        mortgage_balance_minor: draft.mortgage_balance_minor,
         is_leasehold: draft.is_leasehold,
         registered_for_sa: draft.registered_for_sa,
         utr: draft.utr,
@@ -294,12 +303,37 @@ function ConfigForm({ config, onSaved }: { config: TaxConfig; onSaved: (c: TaxCo
       </div>
 
       {draft.has_mortgage === 1 && (
-        <FieldMoney
-          label="Annual mortgage interest (£)"
-          help={help.annual_mortgage_interest_minor}
-          value={poundsValue(draft.annual_mortgage_interest_minor)}
-          onChange={(v) => setMoney('annual_mortgage_interest_minor', v)}
-        />
+        <div className="space-y-3 rounded-md border border-line p-3">
+          <FieldMoney
+            label="Annual mortgage interest (£) — exact certificate figure"
+            help={help.annual_mortgage_interest_minor}
+            value={poundsValue(draft.annual_mortgage_interest_minor)}
+            onChange={(v) => setMoney('annual_mortgage_interest_minor', v)}
+          />
+          <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-soft">
+            — or, if you don't know the exact figure —
+          </p>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-4">
+              <label className="text-[13px] font-medium text-ink">Mortgage interest rate (%)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                value={draft.mortgage_rate_pct ?? ''}
+                onChange={(e) => setRatePct(e.target.value)}
+                className="w-36 rounded-md border border-line bg-paper px-2 py-1 text-right font-mono text-[13px] text-ink"
+              />
+            </div>
+            <p className="text-[12px] text-ink-soft">{help.mortgage_rate_pct}</p>
+          </div>
+          <FieldMoney
+            label="Mortgage outstanding balance (£)"
+            help={help.mortgage_balance_minor}
+            value={poundsValue(draft.mortgage_balance_minor)}
+            onChange={(v) => setMoney('mortgage_balance_minor', v)}
+          />
+        </div>
       )}
 
       <FieldMoney
@@ -422,8 +456,16 @@ function MissingInputsCard({ missing }: { missing: string[] }) {
 // ---------------------------------------------------------------- Documents
 function DocumentsPanel() {
   const [docs, setDocs] = useState<TaxDocument[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
-    api.taxDocuments(TAX_YEAR).then((r) => setDocs(r.documents), () => setDocs([]))
+    setError(null)
+    api.taxDocuments(TAX_YEAR).then(
+      (r) => setDocs(r.documents),
+      (e: unknown) => {
+        setDocs(null)
+        setError(e instanceof Error ? e.message : "Couldn't load documents")
+      },
+    )
   }, [])
   useEffect(load, [load])
 
@@ -432,6 +474,16 @@ function DocumentsPanel() {
     load()
   }
 
+  if (error) {
+    return (
+      <p className="text-[13px] text-ink-mid">
+        {error}{' '}
+        <button type="button" onClick={load} className="underline">
+          retry
+        </button>
+      </p>
+    )
+  }
   if (docs === null) return <p className="text-[13px] text-ink-soft">Loading…</p>
   if (docs.length === 0)
     return (
@@ -472,11 +524,19 @@ function DocumentsPanel() {
 // ------------------------------------------------------------------- Ledger
 function LedgerPanel() {
   const [entries, setEntries] = useState<LedgerEntry[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<{ local_date: string; kind: 'income' | 'expense'; expense_type: string; amount: string }>(
     { local_date: '', kind: 'income', expense_type: 'agent_fees', amount: '' },
   )
   const load = useCallback(() => {
-    api.taxLedger(TAX_YEAR).then((r) => setEntries(r.entries), () => setEntries([]))
+    setError(null)
+    api.taxLedger(TAX_YEAR).then(
+      (r) => setEntries(r.entries),
+      (e: unknown) => {
+        setEntries(null)
+        setError(e instanceof Error ? e.message : "Couldn't load the ledger")
+      },
+    )
   }, [])
   useEffect(load, [load])
 
@@ -496,6 +556,17 @@ function LedgerPanel() {
   const remove = async (id: number) => {
     await api.deleteLedgerEntry(id)
     load()
+  }
+
+  if (error) {
+    return (
+      <p className="text-[13px] text-ink-mid">
+        {error}{' '}
+        <button type="button" onClick={load} className="underline">
+          retry
+        </button>
+      </p>
+    )
   }
 
   const income = (entries ?? []).filter((e) => e.kind === 'income')
@@ -618,9 +689,19 @@ export function TaxDetail() {
   const [tab, setTab] = useTabHash('estimate')
   const [summary, setSummary] = useState<TaxSummary | null>(null)
   const [config, setConfig] = useState<TaxConfig | null>(null)
+  // A failed fetch used to fall back to `null`, which the estimate tab reads
+  // as "no missing inputs" — a misleading empty state that hid the real
+  // error (docs/phases/PHASE-10-post-launch-fixes.md item 3's audit).
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    api.taxSummary(TAX_YEAR).then(setSummary, () => setSummary(null))
+    setError(null)
+    api
+      .taxSummary(TAX_YEAR)
+      .then(setSummary, (e: unknown) => {
+        setSummary(null)
+        setError(e instanceof Error ? e.message : "Couldn't load tax data")
+      })
     api.taxConfig().then((r) => setConfig(r.config), () => setConfig(null))
   }, [])
   useEffect(load, [load])
@@ -653,7 +734,14 @@ export function TaxDetail() {
       {tab === 'ledger' && <LedgerPanel />}
       {tab === 'estimate' && (
         <div className="space-y-5">
-          {summary?.estimate ? (
+          {error ? (
+            <p className="text-[13px] text-ink-mid">
+              {error}{' '}
+              <button type="button" onClick={load} className="underline">
+                retry
+              </button>
+            </p>
+          ) : summary?.estimate ? (
             <EstimatePanel estimate={summary.estimate} />
           ) : (
             <MissingInputsCard missing={summary?.missing_inputs ?? []} />

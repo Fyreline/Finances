@@ -131,7 +131,7 @@ recurring_payments
   next_expected TEXT                -- last_seen + cadence
   occurrences INTEGER NOT NULL
   status TEXT NOT NULL DEFAULT 'active'    -- 'active' | 'lapsed' (missed 2 cycles) | 'dismissed'
-  user_verdict TEXT                 -- NULL | 'keep' | 'cancel_candidate' | 'cancelled'
+  user_verdict TEXT                 -- NULL | 'keep' | 'cancel_candidate' | 'cancelled' | 'not_recurring'
   confidence REAL NOT NULL          -- 0..1 (§3a)
   UNIQUE (user_id, merchant_key, cadence)
 ```
@@ -171,7 +171,13 @@ Runs after every sync over outgoing, non-excluded transactions.
    90 days (no top-ups/extras suggests no active engagement). Kakeibo cannot know
    actual usage of a Netflix account — the copy must say "worth checking you still use
    this", never "unused".
-5. Upserts preserve `user_verdict`; a dismissed row stays dismissed.
+5. Upserts preserve `user_verdict`; a dismissed row stays dismissed. `'cancelled'` and
+   `'not_recurring'` (Phase 10) both set `status='dismissed'` identically — the
+   distinction is purely an honest label for *why* the user dismissed it: `'cancelled'`
+   is a real subscription they ended (Netflix, gym); `'not_recurring'` is the detector
+   flagging something that was never a subscription to begin with (a mortgage standing
+   order, a Starling Space transfer to savings) — wrong framing to call "cancelled"
+   since it's still active, just never was a subscription.
 
 Salary and rent arriving are detected the same way on **incoming** transactions
 (cadence monthly, amount stable) and offered as the income anchors for safe-to-spend
@@ -253,6 +259,9 @@ tax_config                          -- TAX.md §2 inputs; NULLs = unanswered ope
   agent_fee_pct REAL                            --   needed" instead (no guessed numbers, ever).
   has_mortgage INTEGER              -- 0/1; NULL = UNKNOWN (HANDOFF Q1)
   annual_mortgage_interest_minor INTEGER        -- from lender's annual certificate
+  mortgage_rate_pct REAL            -- Phase 10 fallback: rate + balance below estimate the
+  mortgage_balance_minor INTEGER    --   interest when the certificate figure is unknown (OUTSTANDING
+                                     --   balance, not original loan); certificate always wins if set
   is_leasehold INTEGER              -- ground rent / service charge allowability (HANDOFF Q4)
   registered_for_sa INTEGER         -- NULL = UNKNOWN (HANDOFF Q2 — deadline-critical)
   utr TEXT                          -- if registered

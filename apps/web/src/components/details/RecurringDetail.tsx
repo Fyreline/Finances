@@ -24,9 +24,12 @@ function ConfidenceDots({ confidence }: { confidence: number }) {
 }
 
 function RecurringRow({ item, onVerdict }: { item: Recurring; onVerdict: (id: number, v: RecurringVerdict) => void }) {
-  const isCancelled = item.user_verdict === 'cancelled'
+  // Both dismissing verdicts dim the row identically — only the label the
+  // user picked differs, not the visual treatment
+  // (docs/phases/PHASE-10-post-launch-fixes.md item 4).
+  const isDismissed = item.user_verdict === 'cancelled' || item.user_verdict === 'not_recurring'
   return (
-    <div className={`py-3 ${isCancelled ? 'opacity-50' : ''}`}>
+    <div className={`py-3 ${isDismissed ? 'opacity-50' : ''}`}>
       <div className="flex items-center gap-2">
         <span className="font-mono text-ink-soft" aria-hidden>
           {CADENCE_GLYPH[item.cadence] ?? '↻'}
@@ -53,12 +56,12 @@ function RecurringRow({ item, onVerdict }: { item: Recurring; onVerdict: (id: nu
             price rise
           </span>
         )}
-        {item.cancel_candidate && !isCancelled && (
+        {item.cancel_candidate && !isDismissed && (
           <span className="rounded-full bg-oat px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-mid">
             still using this?
           </span>
         )}
-        {item.id !== null && !isCancelled && (
+        {item.id !== null && !isDismissed && (
           <span className="ml-auto flex gap-1">
             <button
               type="button"
@@ -73,8 +76,17 @@ function RecurringRow({ item, onVerdict }: { item: Recurring; onVerdict: (id: nu
               type="button"
               onClick={() => onVerdict(item.id as number, 'cancelled')}
               className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ink-mid transition hover:bg-paper-deep"
+              title="A real subscription you decided to end (Netflix, gym, etc.)"
             >
               cancelled
+            </button>
+            <button
+              type="button"
+              onClick={() => onVerdict(item.id as number, 'not_recurring')}
+              className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ink-mid transition hover:bg-paper-deep"
+              title="This was never a subscription — a mortgage payment, a savings transfer, etc."
+            >
+              not a subscription
             </button>
           </span>
         )}

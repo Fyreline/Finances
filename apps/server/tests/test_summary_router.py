@@ -249,6 +249,50 @@ def test_recurring_detection_and_verdict_persists(authed):
     assert after["totals"]["monthly_committed_minor"] == 0
 
 
+def test_recurring_not_recurring_verdict_dismisses_without_resurrection(authed):
+    """docs/phases/PHASE-10-post-launch-fixes.md item 4 — "not_recurring" is a
+    distinct, honestly-labelled verdict from "cancelled" (a mortgage standing
+    order was never a subscription to begin with) but has the identical
+    backend dismissal effect: status="dismissed", excluded from committed
+    totals, and never resurrected by a later `rebuild_recurring()` re-detection
+    (mirrors the existing "cancelled" test's assertions)."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    # A stable monthly standing order that looks exactly like a subscription
+    # to the detector but is really a mortgage payment.
+    for i, month in enumerate(("2026-03", "2026-04", "2026-05", "2026-06", "2026-07")):
+        _seed_txn(
+            account_id, f"mort-{i}", amount_minor=-89900, local_date=f"{month}-01",
+            counterparty="ACME MORTGAGES LTD", category_key="housing",
+        )
+
+    payload = client.get("/api/recurring", headers=headers).json()
+    mortgage = next(r for r in payload["recurring"] if r["label"] == "ACME MORTGAGES LTD")
+    assert payload["totals"]["monthly_committed_minor"] == 89900
+
+    resp = client.patch(f"/api/recurring/{mortgage['id']}", headers=headers, json={"user_verdict": "not_recurring"})
+    assert resp.status_code == 200
+    assert resp.json()["recurring"]["status"] == "dismissed"
+
+    after = client.get("/api/recurring", headers=headers).json()
+    mort_after = next(r for r in after["recurring"] if r["label"] == "ACME MORTGAGES LTD")
+    assert mort_after["user_verdict"] == "not_recurring"
+    assert after["totals"]["monthly_committed_minor"] == 0
+
+    with SessionLocal() as session:
+        row = session.get(RecurringPayment, mortgage["id"])
+        assert row.status == "dismissed"
+        assert row.user_verdict == "not_recurring"
+
+    # A subsequent re-detection pass (e.g. after a sync) must never resurrect it.
+    from app.insights_service import rebuild_recurring
+
+    with SessionLocal() as session:
+        rebuild_recurring(session, user_id, as_of="2026-07-15")
+        row = session.get(RecurringPayment, mortgage["id"])
+        assert row.status == "dismissed"
+
+
 def test_recurring_patch_rejects_bad_verdict(authed):
     client, user_id, headers = authed
     with SessionLocal() as session:

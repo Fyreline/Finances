@@ -12,7 +12,7 @@ function currentMonth(): string {
   return new Date().toLocaleDateString('en-CA').slice(0, 7)
 }
 
-function BreakdownTab({ month }: { month: string }) {
+function BreakdownTab({ month, onSelectCategory }: { month: string; onSelectCategory: (key: string) => void }) {
   const [summary, setSummary] = useState<MonthSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -27,7 +27,7 @@ function BreakdownTab({ month }: { month: string }) {
   }, [month])
   if (error) return <p className="text-[13px] text-ink-mid">{error}</p>
   if (!summary) return <p className="font-mono text-[11px] text-ink-soft">Loading…</p>
-  return <CategoryBreakdown summary={summary} />
+  return <CategoryBreakdown summary={summary} onSelectCategory={onSelectCategory} />
 }
 
 const TABS: { key: Tab; label: string }[] = [
@@ -69,6 +69,18 @@ export function SpendingDetail() {
   // tab for the Spending bubble (docs/DESIGN.md §3b row 4).
   const [tab, setTab] = useTabHash('breakdown')
   const month = currentMonth()
+  // Plain state, not hash-synced — matches TransactionTable's OWN filters
+  // (month/category/q), which are plain useState too
+  // (docs/phases/PHASE-10-post-launch-fixes.md item 5). Only feeds
+  // TransactionTable's `initialFilters` on the mount that follows a category
+  // click; cleared on any switch away from Transactions so a later, unrelated
+  // visit never carries a stale filter forward.
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+
+  const changeTab = (next: Tab) => {
+    if (next !== 'transactions') setSelectedCategory(null)
+    setTab(next)
+  }
 
   return (
     <div className="space-y-4">
@@ -79,7 +91,7 @@ export function SpendingDetail() {
             type="button"
             role="tab"
             aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => changeTab(t.key)}
             className={`px-3 py-2 font-mono text-[11px] uppercase tracking-[0.08em] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay/60 ${
               tab === t.key ? 'border-b-2 border-clay text-ink' : 'text-ink-soft hover:text-ink-mid'
             }`}
@@ -89,8 +101,18 @@ export function SpendingDetail() {
         ))}
       </div>
 
-      {tab === 'breakdown' && <BreakdownTab month={month} />}
-      {tab === 'transactions' && <TransactionTable />}
+      {tab === 'breakdown' && (
+        <BreakdownTab
+          month={month}
+          onSelectCategory={(key) => {
+            setSelectedCategory(key)
+            setTab('transactions')
+          }}
+        />
+      )}
+      {tab === 'transactions' && (
+        <TransactionTable initialFilters={selectedCategory ? { category: selectedCategory } : undefined} />
+      )}
       {tab === 'tips' && <TipsList period={month} />}
     </div>
   )

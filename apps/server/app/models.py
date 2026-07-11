@@ -218,6 +218,13 @@ class TaxConfig(Base):
     agent_fee_pct: Mapped[float | None] = mapped_column(nullable=True)
     has_mortgage: Mapped[int | None] = mapped_column(nullable=True)  # NULL = unknown
     annual_mortgage_interest_minor: Mapped[int | None] = mapped_column(nullable=True)
+    # Rate + outstanding balance — an honest, visibly-flagged fallback when the
+    # exact certificate figure above isn't known (docs/phases/
+    # PHASE-10-post-launch-fixes.md item 6, docs/TAX.md §2). The certificate
+    # figure always wins when both are set; the estimate it derives carries an
+    # `assumptions` line, never presented as the exact number.
+    mortgage_rate_pct: Mapped[float | None] = mapped_column(nullable=True)
+    mortgage_balance_minor: Mapped[int | None] = mapped_column(nullable=True)  # OUTSTANDING, not original loan
     is_leasehold: Mapped[int | None] = mapped_column(nullable=True)
     registered_for_sa: Mapped[int | None] = mapped_column(nullable=True)  # NULL = unknown
     utr: Mapped[str | None] = mapped_column(nullable=True)

@@ -72,13 +72,34 @@ CONFIG_FIELD_HELP: dict[str, str] = {
     "has_mortgage": "If yes, interest is relieved only via the 20% Section 24 credit — "
     "typically the largest single number in the computation. Never assumed either way.",
     "annual_mortgage_interest_minor": "From the lender's annual mortgage-interest certificate "
-    "(interest only — capital repayments are never relievable).",
-    "is_leasehold": "Ground rent / service charges are allowable only if the property is leasehold.",
+    "(interest only — capital repayments are never relievable). Don't have the exact figure? "
+    "Fill in the rate and outstanding balance below instead — Kakeibo estimates it and clearly "
+    "flags the number as an estimate, not the certificate figure.",
+    "mortgage_rate_pct": "Your mortgage's interest rate (%) — used only when the exact annual "
+    "interest above is left blank. Combined with the outstanding balance below to estimate the "
+    "year's interest; swap in the real certificate figure once you have it for an exact number.",
+    "mortgage_balance_minor": "The mortgage's OUTSTANDING balance right now — not the original "
+    "loan amount. Interest is charged on what's left to repay, which shrinks every year on a "
+    "repayment mortgage even at a fixed rate, so the original loan amount would overstate it.",
+    # Rewritten (docs/phases/PHASE-10-post-launch-fixes.md item 7) — the original wording was
+    # technically correct but left a real user unsure whether this asks about their OWN
+    # ownership structure of the house or the LETTING arrangement with their tenant. Those are
+    # unrelated questions; a house can be owned outright/mortgaged (not leasehold) and still be
+    # let to a tenant via an agency, which is the common Scottish case.
+    "is_leasehold": '"Leasehold" is about how YOU own this house — do you hold it via a lease '
+    "from a separate freeholder, paying them ground rent/service charges (common for flats, "
+    "rare for houses)? It has nothing to do with letting the property to a tenant, which is a "
+    "separate question. Most Scottish residential property has no leasehold structure (feudal "
+    'tenure was abolished in 2004) — if that doesn\'t sound familiar, the answer is almost '
+    'certainly "no".',
     "registered_for_sa": "Drives the deadline reminders and the Self Assessment checklist.",
     "utr": "Your Unique Taxpayer Reference, if already registered.",
     "employment_gross_annual_minor": "Places the rental profit in the correct Scottish band — "
     "the marginal rate is likely 21% or 42% depending on salary; guessing misstates the estimate by half.",
-    "monthly_rent_minor": "Gross monthly rent — configures income detection and the Gmail search.",
+    # Also disambiguated (item 7's "skim TAX_FIELD_HELP fully" instruction) — on its own,
+    # "monthly rent" could plausibly be misread as rent the user pays on their own home.
+    "monthly_rent_minor": "Gross monthly rent you RECEIVE from your tenant (not any rent you pay "
+    "yourself) — configures income detection and the Gmail search.",
     "letting_agent": "Agent name — configures the Gmail query for their statements.",
     "agent_fee_pct": "The agent's fee percentage — a recurring allowable expense.",
 }
@@ -101,6 +122,8 @@ def _config_dict(cfg: TaxConfig) -> dict:
         "agent_fee_pct": cfg.agent_fee_pct,
         "has_mortgage": cfg.has_mortgage,
         "annual_mortgage_interest_minor": cfg.annual_mortgage_interest_minor,
+        "mortgage_rate_pct": cfg.mortgage_rate_pct,
+        "mortgage_balance_minor": cfg.mortgage_balance_minor,
         "is_leasehold": cfg.is_leasehold,
         "registered_for_sa": cfg.registered_for_sa,
         "utr": cfg.utr,
@@ -120,6 +143,8 @@ class TaxConfigBody(BaseModel):
     agent_fee_pct: float | None = None
     has_mortgage: int | None = None
     annual_mortgage_interest_minor: int | None = None
+    mortgage_rate_pct: float | None = None
+    mortgage_balance_minor: int | None = None
     is_leasehold: int | None = None
     registered_for_sa: int | None = None
     utr: str | None = None
@@ -182,6 +207,27 @@ def _year_figures(session: Session, tax_year: str, is_leasehold: int | None) -> 
     }
 
 
+def _resolve_mortgage_interest(cfg: TaxConfig) -> tuple[int | None, str | None]:
+    """The exact certificate figure always wins when set (docs/TAX.md §2).
+    Otherwise, if BOTH `mortgage_rate_pct` and `mortgage_balance_minor` (the
+    OUTSTANDING balance, not the original loan) are set, derive an honest,
+    visibly-flagged estimate — never silently invented (docs/TAX.md §0, docs/
+    phases/PHASE-10-post-launch-fixes.md item 6). Returns
+    ``(annual_mortgage_interest_minor, assumption_or_None)``; the float
+    `mortgage_rate_pct` touches money exactly once here, immediately rounded
+    to the nearest penny — the one permitted exception to "integer pence
+    everywhere" (docs/PLAN.md §6)."""
+    if cfg.annual_mortgage_interest_minor is not None:
+        return cfg.annual_mortgage_interest_minor, None
+    if cfg.mortgage_rate_pct is not None and cfg.mortgage_balance_minor is not None:
+        estimated = round(cfg.mortgage_balance_minor * cfg.mortgage_rate_pct / 100)
+        return estimated, (
+            "Mortgage interest estimated from rate × balance, not your lender's exact "
+            "certificate — swap in the real figure once you have it for an exact number."
+        )
+    return None, None
+
+
 def _prior_year_pairs(session: Session, tax_year: str, is_leasehold: int | None) -> list[tuple[int, int]]:
     """Chronological ``(gross, allowable)`` pairs for every ledger year strictly
     before ``tax_year`` — feeds loss carry-forward (docs/TAX.md §4). Year keys
@@ -203,10 +249,11 @@ def year_summary_payload(session: Session, user_id: int, tax_year: str) -> dict:
     (docs/phases/PHASE-7-dashboard.md item 6)."""
     cfg = _get_or_create_config(session, user_id)
     fig = _year_figures(session, tax_year, cfg.is_leasehold)
+    resolved_interest_minor, mortgage_assumption = _resolve_mortgage_interest(cfg)
 
     missing = missing_inputs(
         has_mortgage=cfg.has_mortgage,
-        annual_mortgage_interest_minor=cfg.annual_mortgage_interest_minor,
+        annual_mortgage_interest_minor=resolved_interest_minor,
         employment_gross_annual_minor=cfg.employment_gross_annual_minor,
         ledger_finance_costs_minor=fig["ledger_finance_costs_minor"],
     )
@@ -231,12 +278,11 @@ def year_summary_payload(session: Session, user_id: int, tax_year: str) -> dict:
 
     rates, assumption = rates_for_year(tax_year)
     finance_costs = (
-        cfg.annual_mortgage_interest_minor
-        if cfg.annual_mortgage_interest_minor is not None
-        else fig["ledger_finance_costs_minor"]
+        resolved_interest_minor if resolved_interest_minor is not None else fig["ledger_finance_costs_minor"]
     )
     loss_bf = loss_brought_forward_minor(_prior_year_pairs(session, tax_year, cfg.is_leasehold))
 
+    assumptions = ([assumption] if assumption else []) + ([mortgage_assumption] if mortgage_assumption else [])
     estimate = estimate_tax(
         EstimateInputs(
             gross_rents_minor=fig["gross_rents_minor"],
@@ -248,7 +294,7 @@ def year_summary_payload(session: Session, user_id: int, tax_year: str) -> dict:
             tax_at_source_minor=income_tax_minor(cfg.employment_gross_annual_minor or 0, rates),
         ),
         rates,
-        assumptions=[assumption] if assumption else [],
+        assumptions=assumptions,
     )
     return {**base, "estimate": estimate, "missing_inputs": []}
 

@@ -285,7 +285,10 @@ GET  /api/recurring              → {recurring:[{id, label, cadence, typical_am
                                     amount_drift_pct, last_seen, next_expected, occurrences,
                                     status, user_verdict, confidence, cancel_candidate: bool,
                                     monthly_equivalent_minor}], totals:{monthly_committed_minor}}
-PATCH /api/recurring/{id}        {user_verdict: "keep"|"cancel_candidate"|"cancelled"} → 200
+PATCH /api/recurring/{id}        {user_verdict: "keep"|"cancel_candidate"|"cancelled"|"not_recurring"} → 200
+                                  # "cancelled" = a real subscription the user ended; "not_recurring" =
+                                  # this was never a subscription (mortgage, savings transfer, etc.) —
+                                  # both dismiss the row identically (status="dismissed"), Phase 10
 
 # Goals
 GET  /api/goals                  → {goals:[{key, label, target_minor, target_date,
@@ -305,13 +308,19 @@ GET  /api/goal/service           → {goal_pence, saved_pence, pct,
                                     pace_status: "on_track"|"behind"|"no_trend", as_of}
 
 # Tax (TAX.md governs the semantics)
-GET  /api/tax/config · PUT /api/tax/config        # the HANDOFF open-question inputs
+GET  /api/tax/config · PUT /api/tax/config        # the HANDOFF open-question inputs, incl. Phase 10's
+                                    # mortgage_rate_pct/mortgage_balance_minor (an honest fallback for
+                                    # annual_mortgage_interest_minor when the certificate figure is
+                                    # unknown — balance is OUTSTANDING, not the original loan; the
+                                    # certificate figure always wins when both are set)
 GET  /api/tax/years/{key}/summary → {gross_rents_minor, allowable_expenses:{<type>: minor,...},
                                     profit_minor, estimate: null | {method_used:
                                     "expenses_plus_s24"|"property_allowance",
                                     tax_due_minor, s24_credit_minor, comparison:{...},
                                     marginal_band, assumptions:[str], disclaimer: str},
-                                    missing_inputs:[str]}   # estimate null while inputs missing
+                                    missing_inputs:[str]}   # estimate null while inputs missing;
+                                    # assumptions carries a note when mortgage interest is a
+                                    # rate×balance estimate rather than the exact certificate figure
 GET  /api/tax/documents?year=2026-27&unreviewed=1 → {documents:[...]}
 PATCH /api/tax/documents/{id}    {doc_type? | amount_minor? | reviewed?} → 200
 POST /api/tax/ledger             {tax_year, local_date, kind, expense_type?, amount_minor,

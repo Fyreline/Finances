@@ -196,13 +196,19 @@ expansion panel (poster → detail panel + brace connector) and its detail drawe
 
 - **Desktop (≥1024px): in-place expand.** Tapping a bubble expands a full-width
   detail panel directly **below the bubble's grid row** (the grid rows below shift
-  down); the bubble stays visible and highlighted (`border-clay/60`), joined to the
+  down); the bubble stays visible and highlighted (`border-liquid`), joined to the
   panel by the **BraceConnector** pattern ported from Mishka Hub's `App.tsx`
   (`bracePath(peakPercent)` — peak slides on `useSpring` to the active bubble; panel
-  outline `border-clay/60` on sides+bottom, no top border, so brace and panel read as
-  one shape; remember the `overflow: visible` gotcha, Mishka DESIGN §7). Tapping the
-  bubble again, `Esc`, or tapping another bubble closes/moves it. One panel open at a
-  time.
+  outline `border-liquid` on sides+bottom, no top border, so brace and panel read as
+  one shape; remember the `overflow: visible` gotcha, Mishka DESIGN §7). **Phase 10**
+  moved this from a bare stroked brace to Mishka Hub's actual liquid-glass treatment
+  (`--color-liquid`, "Mishka's connector surface" — already in the shared theme.css):
+  the brace stroke itself is `var(--color-liquid)`, plus a soft liquid-tinted
+  gradient fill pooling under the curve (a filled glass surface, not just an outline)
+  — subtler than Mishka's full poster halo ("a desk, not a poster wall"), but the
+  same connected-surface idea, and the bubble/panel borders switched from
+  `border-clay/60` to `border-liquid` to match. Tapping the bubble again, `Esc`, or
+  tapping another bubble closes/moves it. One panel open at a time.
 - **Mobile (<1024px): full-height bottom sheet** (`bg-paper rounded-t-lg
   shadow-float`, backdrop `ink/30`, no blur — Mishka drawer spec), slides up 260ms
   ease-out, drag-handle + swipe-down or back-gesture to dismiss. The sheet header

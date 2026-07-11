@@ -17,11 +17,19 @@ function monthLabel(month: string): string {
   return new Date(`${month}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 }
 
-function CategoryRow({ cat, maxShare }: { cat: MonthCategory; maxShare: number }) {
+function CategoryRow({
+  cat,
+  maxShare,
+  onSelect,
+}: {
+  cat: MonthCategory
+  maxShare: number
+  onSelect?: (key: string) => void
+}) {
   const fillPct = maxShare > 0 ? (cat.share_pct / maxShare) * 100 : 0
   const width = useBarFill(fillPct)
-  return (
-    <div className="space-y-1 py-2">
+  const content = (
+    <>
       <div className="flex items-center gap-2">
         <span className={`inline-block h-3 w-3 shrink-0 rounded-sm ${categoryChipClass(cat.viz_slot)}`} aria-hidden />
         <span className="flex-1 truncate text-[13px] text-ink">{cat.label}</span>
@@ -44,15 +52,41 @@ function CategoryRow({ cat, maxShare }: { cat: MonthCategory; maxShare: number }
           style={{ width: `${width}%` }}
         />
       </div>
-    </div>
+    </>
+  )
+
+  // Clicking a category jumps to the Transactions tab pre-filtered to it
+  // (docs/phases/PHASE-10-post-launch-fixes.md item 5) — only when a handler
+  // is wired up; otherwise the row stays a plain (non-interactive) summary.
+  if (!onSelect) {
+    return <div className="space-y-1 py-2">{content}</div>
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(cat.key)}
+      className="block w-full space-y-1 rounded-md py-2 text-left transition hover:bg-paper-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay/60"
+      title={`View ${cat.label} transactions`}
+    >
+      {content}
+    </button>
   )
 }
 
 /** docs/DESIGN.md §4d — category breakdown as horizontal bars (never a pie),
  * ordered by spend, each with its benchmark verdict pill (band bounds + dated
  * source in the tooltip). The methodology note is a serif footnote, always
- * visible: the bands are heuristic, never precise (docs/API.md §6b). */
-export function CategoryBreakdown({ summary }: { summary: MonthSummary }) {
+ * visible: the bands are heuristic, never precise (docs/API.md §6b).
+ * `onSelectCategory` (docs/phases/PHASE-10-post-launch-fixes.md item 5) wires
+ * a category row to the Transactions tab's pre-set filter — optional so this
+ * component still works standalone without the click-through. */
+export function CategoryBreakdown({
+  summary,
+  onSelectCategory,
+}: {
+  summary: MonthSummary
+  onSelectCategory?: (key: string) => void
+}) {
   if (summary.categories.length === 0) {
     return <p className="font-serif text-[15px] text-ink-mid">No categorised spending for this month yet.</p>
   }
@@ -65,7 +99,7 @@ export function CategoryBreakdown({ summary }: { summary: MonthSummary }) {
       </div>
       <div className="divide-y divide-line">
         {summary.categories.map((c) => (
-          <CategoryRow key={c.key} cat={c} maxShare={maxShare} />
+          <CategoryRow key={c.key} cat={c} maxShare={maxShare} onSelect={onSelectCategory} />
         ))}
       </div>
       <p className="font-serif text-[12px] leading-relaxed text-ink-soft">{summary.methodology_note}</p>

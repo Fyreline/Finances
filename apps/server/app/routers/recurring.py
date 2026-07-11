@@ -16,7 +16,16 @@ from ..models import RecurringPayment
 
 router = APIRouter(tags=["recurring"])
 
-_VERDICTS = {"keep", "cancel_candidate", "cancelled"}
+# "not_recurring" (docs/phases/PHASE-10-post-launch-fixes.md item 4) is a
+# distinct verdict from "cancelled": "cancelled" means a genuine subscription
+# the user decided to stop (Netflix, gym); "not_recurring" means the detector
+# was wrong to flag this as a subscription at all — a mortgage standing order
+# or a Starling Space transfer, still very much active, just never a
+# subscription to begin with. Both dismiss the row identically on the
+# backend (docs/DATA_MODEL.md §3a.5) — the distinction is purely about
+# giving the user an honest label for what they're telling Kakeibo.
+_VERDICTS = {"keep", "cancel_candidate", "cancelled", "not_recurring"}
+_DISMISSING_VERDICTS = {"cancelled", "not_recurring"}
 
 
 @router.get("/recurring")
@@ -44,9 +53,11 @@ async def patch_recurring(
         raise KakeiboHTTPException(status_code=404, detail="Recurring payment not found", code="not_found")
 
     row.user_verdict = body.user_verdict
-    # A "cancelled" verdict also dismisses the row from active committed totals
-    # and stops it resurfacing as a cancel-candidate (docs/DATA_MODEL.md §3a.5).
-    if body.user_verdict == "cancelled":
+    # A "cancelled" or "not_recurring" verdict dismisses the row from active
+    # committed totals and stops it resurfacing as a cancel-candidate
+    # (docs/DATA_MODEL.md §3a.5) — same backend effect, different honest
+    # label for why the user dismissed it.
+    if body.user_verdict in _DISMISSING_VERDICTS:
         row.status = "dismissed"
     session.commit()
     return {"recurring": {"id": row.id, "user_verdict": row.user_verdict, "status": row.status}}

@@ -373,7 +373,11 @@ export interface Tip {
 }
 
 export type RecurringCadence = 'weekly' | 'monthly' | 'quarterly' | 'annual'
-export type RecurringVerdict = 'keep' | 'cancel_candidate' | 'cancelled'
+// 'not_recurring' (docs/phases/PHASE-10-post-launch-fixes.md item 4): "this
+// was never a subscription" (a mortgage standing order, a Starling Space
+// transfer) — distinct from 'cancelled' ("this WAS a subscription, I ended
+// it"), same dismissed-from-committed-totals backend effect either way.
+export type RecurringVerdict = 'keep' | 'cancel_candidate' | 'cancelled' | 'not_recurring'
 
 export interface Recurring {
   id: number | null
@@ -424,6 +428,12 @@ export interface TaxConfig {
   agent_fee_pct: number | null
   has_mortgage: number | null
   annual_mortgage_interest_minor: number | null
+  // Rate + outstanding balance — an honest fallback when the exact
+  // certificate figure isn't known (docs/phases/
+  // PHASE-10-post-launch-fixes.md item 6); the certificate figure always
+  // wins when both are set.
+  mortgage_rate_pct: number | null
+  mortgage_balance_minor: number | null
   is_leasehold: number | null
   registered_for_sa: number | null
   utr: string | null

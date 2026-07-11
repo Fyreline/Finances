@@ -19,8 +19,10 @@ export interface BubbleProps {
 
 /** Collapsed tile shell (docs/DESIGN.md §3a): rounded-square card, not a
  * literal circle — hairline border, hover lift, press-scale. `active`
- * marks the bubble whose detail panel is currently open (border-clay/60,
- * docs/DESIGN.md §3c). */
+ * marks the bubble whose detail panel is currently open (border-liquid,
+ * docs/DESIGN.md §3c) — matches the liquid-glass BraceConnector/panel
+ * treatment below it so bubble, brace and panel read as one connected
+ * shape (docs/phases/PHASE-10-post-launch-fixes.md item 1). */
 export const Bubble = forwardRef<HTMLButtonElement, BubbleProps>(function Bubble(
   { title, lines, hero, active, onClick, children },
   ref,
@@ -32,7 +34,7 @@ export const Bubble = forwardRef<HTMLButtonElement, BubbleProps>(function Bubble
       onClick={onClick}
       aria-expanded={active}
       className={`flex min-h-32 flex-col items-start gap-2 rounded-lg border bg-paper-mid p-5 text-left transition hover:border-line-strong hover:-translate-y-px active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay/60 motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${
-        active ? 'border-clay/60' : 'border-line'
+        active ? 'border-liquid' : 'border-line'
       } ${hero ? 'col-span-full' : ''}`}
     >
       <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">{title}</span>

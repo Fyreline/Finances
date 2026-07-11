@@ -175,7 +175,7 @@ function DetailPanel({ bubble, settled }: { bubble: BubbleSpec; settled: boolean
       tabIndex={-1}
       role="region"
       aria-label={`${bubble.title} detail`}
-      className="rounded-b-lg border border-t-0 border-clay/60 bg-paper-mid p-5 outline-none"
+      className="rounded-b-lg border border-t-0 border-liquid bg-paper-mid p-5 outline-none"
     >
       <SettleContext.Provider value={settled}>
         <Detail />
@@ -355,11 +355,29 @@ function MobileSheet({ bubble, onClose }: { bubble: BubbleSpec | null; onClose: 
  * The whole collapsed screen renders from the one `summary` payload
  * (docs/phases/PHASE-7-dashboard.md item 6) — detail panels fetch their own
  * richer data when opened. */
-export function HomePage({ summary }: { summary: BubblesSummary | null }) {
+export function HomePage({
+  summary,
+  onPanelClose,
+}: {
+  summary: BubblesSummary | null
+  /** Fired whenever the active detail panel transitions from open to closed
+   * (docs/phases/PHASE-10-post-launch-fixes.md item 2) — App.tsx uses this
+   * to refetch the one-fetch summary, since closing a panel is a natural
+   * "data may have changed" moment (config saved, time passed). */
+  onPanelClose?: () => void
+}) {
   const [activeKey, setActiveKey] = useHashRoute()
   const isDesktop = useIsDesktop()
   const columns = useColumns()
   const bubbleRefs = useRef(new Map<string, HTMLButtonElement>())
+  const prevActiveKey = useRef(activeKey)
+
+  useEffect(() => {
+    if (prevActiveKey.current !== null && activeKey === null) {
+      onPanelClose?.()
+    }
+    prevActiveKey.current = activeKey
+  }, [activeKey, onPanelClose])
 
   // Merge real glance content into each spec the moment its data exists in
   // the one-fetch payload (docs/DESIGN.md §3b collapsed content specs) —

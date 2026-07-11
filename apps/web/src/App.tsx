@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MotionConfig } from 'motion/react'
 import { bootstrap, getUser, subscribe, type AuthUser } from './auth'
 import { api, type BubblesSummary, type SyncRunStatus } from './api'
@@ -98,23 +98,51 @@ function AuthenticatedApp() {
   // bubble's glance plus the header pill's sync status
   // (docs/phases/PHASE-7-dashboard.md item 6: "the collapsed home should be
   // ONE fetch"). Detail panels fetch their own richer data on expand.
+  //
+  // Still exactly one call per refresh (Phase 7's principle intact) — but
+  // "per refresh" now fires on a couple of sensible triggers beyond mount,
+  // not just once ever (docs/phases/PHASE-10-post-launch-fixes.md item 2):
+  // a detail panel closing (the user may have changed config, or time has
+  // simply passed) and window focus (stale-while-revalidate — catches "left
+  // the tab open, a sync happened"). This is what fixed the reported bug: a
+  // sync that completed seconds after first load left the mount-only fetch
+  // permanently stale while every detail panel (which fetches fresh on
+  // open) correctly showed current data.
   const [summary, setSummary] = useState<BubblesSummary | null>(null)
   const [summaryFailed, setSummaryFailed] = useState(false)
+  const inFlight = useRef(false)
+  const mounted = useRef(true)
 
-  useEffect(() => {
-    let cancelled = false
+  const refetchSummary = useCallback(() => {
+    if (inFlight.current) return
+    inFlight.current = true
     api.bubbles().then(
       (res) => {
-        if (!cancelled) setSummary(res)
+        if (mounted.current) {
+          setSummary(res)
+          setSummaryFailed(false)
+        }
       },
       () => {
-        if (!cancelled) setSummaryFailed(true)
+        if (mounted.current) setSummaryFailed(true)
       },
-    )
-    return () => {
-      cancelled = true
-    }
+    ).finally(() => {
+      inFlight.current = false
+    })
   }, [])
+
+  useEffect(() => {
+    mounted.current = true
+    refetchSummary()
+    return () => {
+      mounted.current = false
+    }
+  }, [refetchSummary])
+
+  useEffect(() => {
+    window.addEventListener('focus', refetchSummary)
+    return () => window.removeEventListener('focus', refetchSummary)
+  }, [refetchSummary])
 
   return (
     <div className="flex min-h-full flex-col bg-paper text-ink">
@@ -136,7 +164,7 @@ function AuthenticatedApp() {
         </div>
       </header>
       <main className="flex-1">
-        <HomePage summary={summary} />
+        <HomePage summary={summary} onPanelClose={refetchSummary} />
       </main>
     </div>
   )

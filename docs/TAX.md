@@ -42,8 +42,8 @@ a setup form, mirrored as HANDOFF.md open questions Q1–Q5:
 | Field | Why it changes the maths |
 |---|---|
 | `has_mortgage` on the rented house | If yes, interest is relieved only via the 20% Section 24 credit (§5b) — typically the largest single number in the computation. If no, the property allowance route becomes far more competitive (§5c). **Never assume either way.** |
-| `annual_mortgage_interest_minor` | From the lender's annual mortgage interest certificate (the Gmail pipeline hunts for exactly this document). Interest only — capital repayments are never relievable. |
-| `is_leasehold` | Ground rent/service charges are allowable expenses only if actually payable (§4). |
+| `annual_mortgage_interest_minor` | From the lender's annual mortgage interest certificate (the Gmail pipeline hunts for exactly this document). Interest only — capital repayments are never relievable. **Phase 10 fallback:** if this is unset but `mortgage_rate_pct` and `mortgage_balance_minor` (the *outstanding* balance, not the original loan) are both set, the engine derives `estimated_interest = round(mortgage_balance_minor × mortgage_rate_pct / 100)` and uses it — with a visible `assumptions` line saying it's an estimate, not the certificate figure (same "assumptions, never silent" pattern as the rates-year fallback below). The exact certificate figure always wins when both are present. |
+| `is_leasehold` | Ground rent/service charges are allowable expenses only if actually payable (§4). This is about the user's own ownership structure of the house (does he hold it via a lease from a separate freeholder?) — **not** about the letting arrangement with the tenant, a common point of confusion (§2's field help spells this out explicitly, docs/phases/PHASE-10-post-launch-fixes.md item 7). |
 | `registered_for_sa` / `utr` | Drives the deadline tips and the §6 checklist rendering. |
 | `employment_gross_annual_minor` | Places rental profit in the correct Scottish band(s) — the marginal rate on rental profit is probably 21% or 42% depending on salary (§3), and guessing wrongly misstates the estimate by half. |
 | `monthly_rent_minor`, `letting_agent`, `agent_fee_pct` | Gross rents + the recurring agent-fee expense; also configures the Gmail query (API.md §3c). |
@@ -135,6 +135,13 @@ s24_credit       = 20% × min(finance_costs,            # ledger mortgage_intere
                    #   (⚠️ verify — ITTOIA s274A; unused finance costs carry forward)
 tax_due_route1   = tax_on_profit − s24_credit          # floor 0; excess credit carries forward
 ```
+
+`finance_costs` above resolves in this order (`routers/tax.py`'s `_resolve_mortgage_interest`,
+Phase 10): the exact `annual_mortgage_interest_minor` certificate figure if set; else
+`round(mortgage_balance_minor × mortgage_rate_pct / 100)` if both are set (outstanding
+balance, not the original loan — interest is charged on what's left to repay); else the
+ledger's own `mortgage_interest` rows. The rate×balance path adds an `assumptions` line
+to the estimate response so it's never mistaken for the certificate's precise figure.
 
 ### 5b. Section 24, spelled out (because it is routinely misunderstood)
 

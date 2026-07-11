@@ -135,9 +135,23 @@ function ConfigForm({ onSaved }: { onSaved: () => void }) {
 }
 
 export function SafeToSpendDetail() {
-  const { data, loading, reload } = useSafeToSpend()
+  const { data, loading, error, reload } = useSafeToSpend()
   const [showSettings, setShowSettings] = useState(false)
 
+  // A fetch failure must surface as an error, not read as "still loading"
+  // forever — the exact bug Phase 9's real-credential testing found here
+  // (docs/phases/PHASE-10-post-launch-fixes.md item 3): `loading` flips
+  // false and `data` stays null on error, so this branch must come first.
+  if (error) {
+    return (
+      <p className="text-[13px] text-ink-mid">
+        {error}{' '}
+        <button type="button" onClick={reload} className="underline">
+          retry
+        </button>
+      </p>
+    )
+  }
   if (loading || !data) return <p className="font-mono text-[11px] text-ink-soft">Loading…</p>
 
   const onSaved = () => {
