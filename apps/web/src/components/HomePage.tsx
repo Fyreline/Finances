@@ -293,56 +293,74 @@ function MobileSheet({ bubble, onClose }: { bubble: BubbleSpec | null; onClose: 
   return (
     <AnimatePresence>
       {bubble && (
-        <>
-          <motion.div
-            className="fixed inset-0 z-30 bg-ink/30"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-            aria-hidden
-          />
-          <motion.div
-            ref={sheetRef}
-            tabIndex={-1}
-            role="region"
-            aria-label={`${bubble.title} detail`}
-            className="fixed inset-x-0 bottom-0 z-40 max-h-[85vh] overflow-y-auto rounded-t-lg bg-paper p-5 shadow-float outline-none"
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ duration: 0.26, ease: 'easeOut' }}
-            onAnimationComplete={(definition) => {
-              if (typeof definition === 'object' && definition !== null && 'y' in definition && definition.y === 0) {
-                setSettled(true)
-              }
-            }}
-            drag="y"
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.4 }}
-            onDragEnd={(_event, info) => {
-              // Swipe-dismiss on either a decisive flick (velocity) or a
-              // long deliberate drag (offset) — docs/DESIGN.md §3c /
-              // docs/phases/PHASE-7-dashboard.md item 2 "swipe-dismiss
-              // velocity".
-              if (info.offset.y > 120 || info.velocity.y > 500) onClose()
-            }}
-          >
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-line-strong" aria-hidden />
-            {/* The sheet header repeats the bubble's glance so context
-                carries over (docs/DESIGN.md §3c mobile spec). */}
-            <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">{bubble.title}</span>
-            {bubble.glance && (
-              <div className="mt-2 flex flex-col items-start gap-2 border-b border-line pb-3">{bubble.glance}</div>
-            )}
-            <div className="mt-3">
-              <SettleContext.Provider value={settled}>
-                <bubble.Detail />
-              </SettleContext.Provider>
+        <motion.div
+          ref={sheetRef}
+          tabIndex={-1}
+          role="region"
+          aria-label={`${bubble.title} detail`}
+          // Full-screen page, not a partial sheet (2026-07-11 follow-up — a
+          // bottom sheet reads as a peek/preview; on a phone, a detail panel
+          // IS the whole task at hand, so it gets the whole screen, like
+          // navigating to a page). `overflow-y-auto` on this outer element
+          // (not a nested scroll area) so the sticky header below stays put
+          // while everything under it scrolls with normal touch scrolling.
+          className="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-paper outline-none"
+          initial={{ y: '100%' }}
+          animate={{ y: 0 }}
+          exit={{ y: '100%' }}
+          transition={{ duration: 0.26, ease: 'easeOut' }}
+          onAnimationComplete={(definition) => {
+            if (typeof definition === 'object' && definition !== null && 'y' in definition && definition.y === 0) {
+              setSettled(true)
+            }
+          }}
+          // No drag-to-dismiss (2026-07-11 follow-up, second pass — the
+          // first attempt scoped `drag="y"` to a dedicated handle via
+          // `dragListener={false}`/`dragControls`, which correctly fixed the
+          // close button's tap being swallowed by Motion's own native
+          // pointerdown listener (confirmed: a raw `.click()` always closed
+          // it, a real tap never did until that fix). But it surfaced a
+          // second, deeper issue live: the close animation would get stuck
+          // at a PARTIAL translateY (confirmed via getComputedStyle — an
+          // arbitrary mid-transition matrix, not 0 or 100%) whenever any
+          // drag interaction, even an aborted one, had touched the panel's
+          // motion values first — Motion's exit transition was animating
+          // relative to a stale drag offset instead of a clean start point.
+          // A full-screen page is closer to "navigate to a new page" than
+          // "peek at a sheet" anyway (docs/DESIGN.md §3c's original
+          // swipe-dismiss was written for the old partial bottom sheet) — so
+          // rather than chase Motion's drag/exit interaction further, the
+          // gesture is gone. Close is the X button or Escape, full stop;
+          // simpler, and removes this entire bug class at the root. */}
+        >
+          {/* Sticky header: an explicit close affordance replaces the old
+              backdrop-tap-to-dismiss, which doesn't exist full-screen — plus
+              the bubble's glance repeated for context (unchanged from the
+              sheet). Sits above the scrolling content, not part of it. */}
+          <div className="sticky top-0 z-10 border-b border-line bg-paper/95 px-5 pb-3 pt-4 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">{bubble.title}</span>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="-m-2 rounded-md p-2 text-ink-soft transition hover:bg-paper-mid hover:text-ink"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+                  <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
             </div>
-          </motion.div>
-        </>
+            {bubble.glance && (
+              <div className="mt-2 flex flex-col items-start gap-2">{bubble.glance}</div>
+            )}
+          </div>
+          <div className="flex-1 px-5 pb-8 pt-3">
+            <SettleContext.Provider value={settled}>
+              <bubble.Detail />
+            </SettleContext.Provider>
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>
   )

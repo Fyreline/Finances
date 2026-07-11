@@ -144,6 +144,19 @@ function AuthenticatedApp() {
     return () => window.removeEventListener('focus', refetchSummary)
   }, [refetchSummary])
 
+  // Belt-and-braces third trigger (2026-07-11 follow-up): focus/panel-close
+  // cover a lot but not "opened the site fresh and just sat on the home
+  // screen without switching apps or opening a panel" — exactly how this
+  // gets used from a phone home-screen icon, where a background sync can
+  // complete while the user is looking straight at the (now stale) glances
+  // with neither trigger ever firing. A quiet 60s poll is cheap for a
+  // personal dashboard and guarantees eventual consistency regardless of
+  // interaction pattern.
+  useEffect(() => {
+    const id = window.setInterval(refetchSummary, 60_000)
+    return () => window.clearInterval(id)
+  }, [refetchSummary])
+
   return (
     <div className="flex min-h-full flex-col bg-paper text-ink">
       <header className="sticky top-0 z-20 border-b border-line bg-paper/95">
