@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Bubble } from './Bubble'
 import { BraceConnector } from './BraceConnector'
@@ -188,89 +188,78 @@ function BubbleRow({
   bubbles,
   activeKey,
   onToggle,
-  isDesktop,
   bubbleRefs,
+  rowRef,
 }: {
   bubbles: BubbleSpec[]
   activeKey: string | null
   onToggle: (key: string) => void
-  isDesktop: boolean
   bubbleRefs: { current: Map<string, HTMLButtonElement> }
+  rowRef: (el: HTMLDivElement | null) => void
 }) {
-  const rowRef = useRef<HTMLDivElement>(null)
-  const activeInRow = bubbles.find((b) => b.key === activeKey) ?? null
-  const [peak, setPeak] = useState<{ width: number; x: number } | null>(null)
-  const [settled, setSettled] = useState(false)
-
-  useEffect(() => {
-    setSettled(false)
-  }, [activeInRow?.key])
-
-  useLayoutEffect(() => {
-    if (!activeInRow || !isDesktop) {
-      setPeak(null)
-      return
-    }
-    const measure = () => {
-      const row = rowRef.current
-      const btn = bubbleRefs.current.get(activeInRow.key)
-      if (!row || !btn) return
-      const rowRect = row.getBoundingClientRect()
-      const btnRect = btn.getBoundingClientRect()
-      setPeak({ width: rowRect.width, x: btnRect.left + btnRect.width / 2 - rowRect.left })
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [activeInRow, isDesktop, bubbleRefs])
-
   return (
-    <div>
-      <div ref={rowRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {bubbles.map((b) => (
-          <Bubble
-            key={b.key}
-            ref={(el) => {
-              if (el) bubbleRefs.current.set(b.key, el)
-              else bubbleRefs.current.delete(b.key)
-            }}
-            title={b.title}
-            lines={b.lines}
-            hero={b.hero}
-            active={b.key === activeKey}
-            onClick={() => onToggle(b.key)}
-          >
-            {b.glance}
-          </Bubble>
-        ))}
-      </div>
-      {isDesktop && (
-        <AnimatePresence initial={false}>
-          {activeInRow && peak && (
-            <motion.div
-              key={activeInRow.key}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-              style={{ overflow: 'hidden' }}
-              onAnimationComplete={(definition) => {
-                // Fires for enter and exit alike — only the open target
-                // means "settled" (docs/DESIGN.md §3c: charts draw in after
-                // the panel finishes moving; instant under reduced motion,
-                // where MotionConfig makes this fire immediately).
-                if (typeof definition === 'object' && definition !== null && 'opacity' in definition && definition.opacity === 1) {
-                  setSettled(true)
-                }
-              }}
-            >
-              <BraceConnector width={peak.width} peakX={peak.x} />
-              <DetailPanel bubble={activeInRow} settled={settled} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      )}
+    <div ref={rowRef} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {bubbles.map((b) => (
+        <Bubble
+          key={b.key}
+          ref={(el) => {
+            if (el) bubbleRefs.current.set(b.key, el)
+            else bubbleRefs.current.delete(b.key)
+          }}
+          title={b.title}
+          lines={b.lines}
+          hero={b.hero}
+          active={b.key === activeKey}
+          onClick={() => onToggle(b.key)}
+        >
+          {b.glance}
+        </Bubble>
+      ))}
     </div>
+  )
+}
+
+/** The one persistent connector+panel instance for the whole desktop grid
+ * (2026-07-12 rewrite — previously each `BubbleRow` owned its own, keyed by
+ * the active bubble, so switching bubbles was a genuine unmount-then-remount:
+ * `AnimatePresence`'s `key={activeInRow.key}` treated a different bubble as a
+ * wholly different element, so the panel visibly collapsed to height:0 and
+ * grew back in — "the entire window pinging up and down" the household
+ * reported). This component is rendered at a *different position* in
+ * `HomePage`'s children depending on which row currently owns the active
+ * bubble, but always under the same `key="detail-slot"` — React's list
+ * reconciliation recognises that as the same instance moving, not a
+ * remount, so switching bubbles (same row or a different one) never
+ * re-triggers the open animation; only the connector's spring-tracked
+ * position and the panel's content change. Closing has no exit transition
+ * at all (this component simply stops being rendered) — instant, per the
+ * household's explicit simplification request. */
+function DetailSlot({
+  bubble,
+  peak,
+  settled,
+  onSettled,
+}: {
+  bubble: BubbleSpec
+  peak: { width: number; x: number; bubbleW: number }
+  settled: boolean
+  onSettled: () => void
+}) {
+  const hasAnimatedIn = useRef(false)
+  return (
+    <motion.div
+      initial={hasAnimatedIn.current ? false : { height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+      style={{ overflow: 'hidden' }}
+      onAnimationComplete={() => {
+        hasAnimatedIn.current = true
+        onSettled()
+      }}
+    >
+      <BraceConnector width={peak.width} peakX={peak.x} bubbleW={peak.bubbleW} />
+      <DetailPanel bubble={bubble} settled={settled} />
+    </motion.div>
   )
 }
 
@@ -470,19 +459,84 @@ export function HomePage({
 
   const activeBubble = bubbles.find((b) => b.key === activeKey) ?? null
 
+  // Which row currently owns the active bubble ('hero', a row key, or null)
+  // — the single DetailSlot renders right after THAT row, nowhere else.
+  const heroRowKey = 'hero'
+  const activeRowKey = useMemo(() => {
+    if (!activeKey) return null
+    if (hero.some((b) => b.key === activeKey)) return heroRowKey
+    const row = rows.find((r) => r.some((b) => b.key === activeKey))
+    return row ? row.map((b) => b.key).join('-') : null
+  }, [activeKey, hero, rows])
+
+  const rowRefs = useRef(new Map<string, HTMLDivElement>())
+  const [peak, setPeak] = useState<{ width: number; x: number; bubbleW: number } | null>(null)
+  const [settled, setSettled] = useState(false)
+
+  useEffect(() => {
+    if (!activeKey) setSettled(false)
+  }, [activeKey])
+
+  useLayoutEffect(() => {
+    if (!activeRowKey || !isDesktop || !activeKey) {
+      setPeak(null)
+      return
+    }
+    const measure = () => {
+      const row = rowRefs.current.get(activeRowKey)
+      const btn = bubbleRefs.current.get(activeKey)
+      if (!row || !btn) return
+      const rowRect = row.getBoundingClientRect()
+      const btnRect = btn.getBoundingClientRect()
+      setPeak({
+        width: rowRect.width,
+        x: btnRect.left + btnRect.width / 2 - rowRect.left,
+        bubbleW: btnRect.width,
+      })
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+    // activeBubble.key (not just activeRowKey) so switching within the same
+    // row still re-measures the new bubble's own x position.
+  }, [activeRowKey, activeKey, isDesktop])
+
+  const slot =
+    isDesktop && activeBubble && peak ? (
+      <DetailSlot key="detail-slot" bubble={activeBubble} peak={peak} settled={settled} onSettled={() => setSettled(true)} />
+    ) : null
+
   return (
     <div className="mx-auto w-full max-w-[72rem] space-y-4 px-5 pb-24 pt-8">
-      <BubbleRow bubbles={hero} activeKey={activeKey} onToggle={toggle} isDesktop={isDesktop} bubbleRefs={bubbleRefs} />
-      {rows.map((row) => (
-        <BubbleRow
-          key={row.map((b) => b.key).join('-')}
-          bubbles={row}
-          activeKey={activeKey}
-          onToggle={toggle}
-          isDesktop={isDesktop}
-          bubbleRefs={bubbleRefs}
-        />
-      ))}
+      <BubbleRow
+        bubbles={hero}
+        activeKey={activeKey}
+        onToggle={toggle}
+        bubbleRefs={bubbleRefs}
+        rowRef={(el) => {
+          if (el) rowRefs.current.set(heroRowKey, el)
+          else rowRefs.current.delete(heroRowKey)
+        }}
+      />
+      {activeRowKey === heroRowKey && slot}
+      {rows.map((row) => {
+        const rowKey = row.map((b) => b.key).join('-')
+        return (
+          <Fragment key={rowKey}>
+            <BubbleRow
+              bubbles={row}
+              activeKey={activeKey}
+              onToggle={toggle}
+              bubbleRefs={bubbleRefs}
+              rowRef={(el) => {
+                if (el) rowRefs.current.set(rowKey, el)
+                else rowRefs.current.delete(rowKey)
+              }}
+            />
+            {activeRowKey === rowKey && slot}
+          </Fragment>
+        )
+      })}
 
       {!isDesktop && <MobileSheet bubble={activeBubble} onClose={close} />}
     </div>

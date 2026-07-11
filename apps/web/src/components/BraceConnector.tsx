@@ -1,65 +1,86 @@
 import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
-import { useEffect, useId } from 'react'
+import { useEffect } from 'react'
 
-const HEIGHT = 20
+const NECK_H = 28
+const WAIST_BASE = 18
+const FLARE = 24
 
-function bracePath(width: number, peakX: number): string {
-  const clampedPeak = Math.min(Math.max(peakX, 28), Math.max(width - 28, 28))
-  const spread = Math.min(70, width / 3)
-  return `M0,${HEIGHT} C${clampedPeak - spread},${HEIGHT} ${clampedPeak - 16},1 ${clampedPeak},1 C${
-    clampedPeak + 16
-  },1 ${clampedPeak + spread},${HEIGHT} ${width},${HEIGHT}`
+/** A filled hourglass/pinch shape between the active bubble's bottom edge
+ * and the detail panel's top edge — ported from Mishka Hub's `LiquidConnector`
+ * (`MishkaHub/apps/web/src/App.tsx`, `liquidPath()`), simplified for Kakeibo's
+ * flatter "a desk, not a poster wall" language (docs/DESIGN.md intro): no
+ * halo-glow behind the bubble, no separate/merge two-menisci sub-phase for
+ * the open beat, no snap-detach choreography on switch — the household's own
+ * simplification (2026-07-12 follow-up: "when switching detail boxes...
+ * stay open... instead of a smooth animation just close it straight away").
+ * What carries over faithfully is the actual SHAPE: a filled path (not a
+ * stroked line — the first attempt at this, Phase 10, only changed the
+ * stroke colour on the old curly-brace outline and missed the real
+ * mechanism entirely) whose waist genuinely pinches between two wider ends,
+ * tangent to the flat edges it leaves and lands on, the same way Mishka's
+ * does. */
+function hourglassPath(rowW: number, centerX: number, bubbleW: number, grow: number): string {
+  const g = Math.max(0, Math.min(1.08, grow))
+  const topHW = bubbleW / 2
+  const joinY = 0
+  const botY = NECK_H
+  const midY = NECK_H / 2
+  const leftFlareHW = Math.max(Math.min(topHW + FLARE, centerX), topHW)
+  const rightFlareHW = Math.max(Math.min(topHW + FLARE, rowW - centerX), topHW)
+  const leftT = centerX - topHW
+  const rightT = centerX + topHW
+  const leftB = centerX - leftFlareHW
+  const rightB = centerX + rightFlareHW
+  const waist = WAIST_BASE * g
+  const w = Math.max(0.5, Math.min(waist, leftFlareHW - 3, rightFlareHW - 3, topHW - 2))
+  return [
+    `M${leftT},${joinY}`,
+    `C${leftT + (centerX - w - leftT) * 0.6},${joinY} ${centerX - w},${midY * 0.55} ${centerX - w},${midY}`,
+    `C${centerX - w},${midY + (botY - midY) * 0.45} ${leftB + (centerX - w - leftB) * 0.62},${botY} ${leftB},${botY}`,
+    `L${rightB},${botY}`,
+    `C${rightB - (rightB - (centerX + w)) * 0.62},${botY} ${centerX + w},${midY + (botY - midY) * 0.45} ${centerX + w},${midY}`,
+    `C${centerX + w},${midY * 0.55} ${rightT - (rightT - (centerX + w)) * 0.6},${joinY} ${rightT},${joinY}`,
+    'Z',
+  ].join(' ')
 }
 
-/** Connects an expanded bubble to its detail panel below it — a curly-
- * brace-shaped outline whose peak tracks the active bubble's horizontal
- * centre (docs/DESIGN.md §3c: "peak slides on useSpring to the active
- * bubble"). Ported from Mishka Hub's liquid-connector concept
- * (`MovieCard.tsx`'s `expanded` halo: `border-liquid` + a
- * `from-liquid ... to-transparent` gradient), adapted for Kakeibo's plainer
- * rounded-square bubbles ("a desk, not a poster wall" — docs/DESIGN.md
- * intro): the brace stroke itself carries `var(--color-liquid)`, plus a
- * soft liquid-tinted fill pooling under the curve — a filled glass surface
- * rather than a bare stroke, but far subtler than Mishka's full poster
- * halo. The `--color-liquid` token is the shared canonical one
- * (theme.css — "Mishka's connector surface / Michi's trail").
- *
- * `overflow: visible` is explicit on the <svg> — the household's paid-for
- * gotcha (Mishka Hub App.tsx, docs/phases/PHASE-1-scaffold.md item 4):
- * a parent's rounded/clip styling can silently truncate a connector that
- * needs to render right at its box edge. Reduced motion is handled
- * globally by wrapping the app in `<MotionConfig reducedMotion="user">`
- * (App.tsx) rather than branching here. */
-export function BraceConnector({ width, peakX }: { width: number; peakX: number }) {
-  const gradientId = useId()
+/** Connects the active bubble to its detail panel below it. `width`/`peakX`/
+ * `bubbleW` all track their target via spring (not a jump) — this is what
+ * makes switching between two open bubbles read as the neck *sliding* to
+ * the new one rather than closing and reopening (docs/DESIGN.md §3c;
+ * 2026-07-12 fix — the actual close/reopen bug was the panel remounting on
+ * every switch in `HomePage.tsx`, not this component, but the connector
+ * still needs to glide rather than jump for the fix to read as one motion,
+ * not two). `overflow: visible` stays explicit (household gotcha, Mishka
+ * Hub App.tsx / docs/phases/PHASE-1-scaffold.md item 4). */
+export function BraceConnector({ width, peakX, bubbleW }: { width: number; peakX: number; bubbleW: number }) {
   const rawX = useMotionValue(peakX)
+  const rawW = useMotionValue(width)
+  const rawBubbleW = useMotionValue(bubbleW)
   useEffect(() => {
     rawX.set(peakX)
-  }, [peakX, rawX])
-  const springX = useSpring(rawX, { stiffness: 260, damping: 28 })
-  const d = useTransform(springX, (x) => bracePath(width, x))
-  // Same curve, closed back along the baseline (the path already starts and
-  // ends on y=HEIGHT, so `Z` closes it with a straight bottom edge) — used
-  // only as a fill region, the stroked `d` above still draws the crisp line.
-  const fillD = useTransform(d, (path) => `${path} Z`)
+    rawW.set(width)
+    rawBubbleW.set(bubbleW)
+  }, [peakX, width, bubbleW, rawX, rawW, rawBubbleW])
+  const spring = { stiffness: 320, damping: 30 }
+  const springX = useSpring(rawX, spring)
+  const springW = useSpring(rawW, spring)
+  const springBubbleW = useSpring(rawBubbleW, spring)
+
+  const d = useTransform([springW, springX, springBubbleW] as const, ([w, x, bw]: number[]) =>
+    hourglassPath(w, x, bw, 1),
+  )
 
   return (
     <svg
       width={width}
-      height={HEIGHT}
-      viewBox={`0 0 ${width} ${HEIGHT}`}
+      height={NECK_H}
+      viewBox={`0 0 ${width} ${NECK_H}`}
       style={{ overflow: 'visible' }}
       aria-hidden
-      className="block"
+      className="block text-liquid"
     >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1={HEIGHT} x2="0" y2="0" gradientUnits="userSpaceOnUse">
-          <stop offset="25%" stopColor="var(--color-liquid)" stopOpacity={0.55} />
-          <stop offset="70%" stopColor="var(--color-liquid)" stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <motion.path d={fillD} fill={`url(#${gradientId})`} stroke="none" />
-      <motion.path d={d} fill="none" stroke="var(--color-liquid)" strokeOpacity={0.9} strokeWidth={1.5} />
+      <motion.path d={d} fill="currentColor" />
     </svg>
   )
 }
