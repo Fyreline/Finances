@@ -52,17 +52,16 @@ default.
   documents that are genuinely **not** rental-related — the `doc_type='other'` bucket
   (bank/broker/energy/game-storefront emails etc., confirmed noise in Phase 12's
   diagnosis) is unambiguously this.
-- **Judgement call, stated here so it's auditable, not silent**: `insurance` (2 real
-  rows) and any `mortgage_interest_cert` documents are a *different*, still-genuinely-
-  useful category — landlord insurance and mortgage-interest evidence directly feed
-  HANDOFF's still-open Q1/Q4 tax questions (Q1 in particular: "the single biggest
-  lever in the tax computation"). These are not "not rental" in the sense the user
-  means (junk from unrelated senders); they're real property-related paperwork that
-  just isn't a monthly statement. **Do not delete these** without asking first — if
-  it's ambiguous whether the user meant to include them, ask (`AskUserQuestion`-style,
-  one clear question) rather than guessing either way on a real, irreversible file
-  deletion. If they do want those gone too, that's a one-line follow-up, not a reason
-  to block the rest of this phase.
+- **Judgement call, already made by the orchestrator, not yours to relitigate**:
+  `insurance` (2 real rows) and any `mortgage_interest_cert` documents are a
+  *different*, still-genuinely-useful category — landlord insurance and mortgage-
+  interest evidence directly feed HANDOFF's still-open Q1/Q4 tax questions (Q1 in
+  particular: "the single biggest lever in the tax computation"). These are not "not
+  rental" in the sense the user means (junk from unrelated senders); they're real
+  property-related paperwork that just isn't a monthly statement. **Do not delete
+  these** — the orchestrator is telling the user directly that they're being held back
+  and why, as part of reporting this phase's results; don't pause mid-implementation
+  to ask, just leave them alone and move on.
 - This is a real, irreversible local deletion (DB rows + files). Back up first exactly
   like every prior data-touching phase (`data/backups/kakeibo-pre-phase13-*.db`, and
   copy the `tax-documents/` folders being deleted somewhere recoverable before
