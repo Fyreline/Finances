@@ -154,7 +154,7 @@ function ConfigForm({ onSaved }: { onSaved: () => void }) {
           <option value="off">Off</option>
         </select>
       </label>
-      {err && <p className="text-[12px] text-over">{err}</p>}
+      {err && <p className="text-[12px] text-fig">{err}</p>}
       <button
         type="button"
         onClick={save}

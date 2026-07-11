@@ -61,7 +61,7 @@ export function GoalBar({
           >
             <span
               className={`block h-full w-full rounded-full ${
-                projectedAtTargetMinor !== null && projectedAtTargetMinor >= targetMinor ? 'bg-gain' : 'bg-over'
+                projectedAtTargetMinor !== null && projectedAtTargetMinor >= targetMinor ? 'bg-gain' : 'bg-kraft'
               }`}
             />
           </div>

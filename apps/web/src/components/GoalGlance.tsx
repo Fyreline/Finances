@@ -65,7 +65,7 @@ export function RebuildGlance({ goal }: { goal: Goal }) {
         <Sparkline series={series} width={96} height={20} className="min-w-0 flex-1" />
         <span className="shrink-0 font-mono text-[10px] text-ink-soft">6 mo</span>
       </div>
-      <span className={`font-mono text-[11px] ${MONEY_CLASS} ${changeSinceBaseline >= 0 ? 'text-gain' : 'text-over'}`}>
+      <span className={`font-mono text-[11px] ${MONEY_CLASS} ${changeSinceBaseline >= 0 ? 'text-gain' : 'text-ink'}`}>
         {formatMinorSigned(changeSinceBaseline)} since baseline
       </span>
     </>

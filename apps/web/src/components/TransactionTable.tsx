@@ -172,7 +172,7 @@ function TransactionRow({
         )}
       </div>
 
-      {error && <div className="col-span-4 font-mono text-[11px] text-clay">{error}</div>}
+      {error && <div className="col-span-4 font-mono text-[11px] text-fig">{error}</div>}
     </div>
   )
 }
