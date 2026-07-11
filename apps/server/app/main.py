@@ -20,6 +20,7 @@ from .engines.deals import DealRunValidationError
 from .errors import register_error_handlers
 from .identity import MishkaIdentityClient
 from .models import Base, seed_categories
+from .schema_sync import sync_schema
 from .routers import (
     accounts,
     auth,
@@ -49,8 +50,14 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.identity = MishkaIdentityClient(settings.mishka_base_url)
     # SQLite; tables created on startup (docs/ARCHITECTURE.md §4 — Alembic
-    # only if a breaking change ever demands it).
+    # only if a breaking change ever demands it). create_all only ever
+    # creates missing *tables* — it silently does nothing for a column added
+    # to an existing table's model, which is exactly the gap that caused two
+    # real 500-everywhere outages on 2026-07-11 (docs/HANDOFF.md). sync_schema
+    # closes that gap for the one safe case (a new nullable column); anything
+    # riskier stops boot instead of guessing (app/schema_sync.py).
     Base.metadata.create_all(engine)
+    sync_schema(engine)
     from .db import SessionLocal
 
     with SessionLocal() as session:

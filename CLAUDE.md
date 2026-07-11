@@ -77,6 +77,17 @@ take a sibling's port.
 - `main.py`'s lifespan seeds categories/goals/tax-years/deals at startup;
   `seed_deals` is gated off under `KAKEIBO_ENVIRONMENT=test` because it writes a real
   file into `data/deals/` (a test-pollution bug Phase 6 paid for).
+- **A new nullable column on an existing model now self-heals on next boot** —
+  `app/schema_sync.py` runs right after `create_all` and auto-`ALTER TABLE ADD COLUMN`s
+  anything the real DB is missing (nullable only; a missing NOT NULL column raises and
+  stops boot instead of guessing a backfill). This exists because the SAME bug — a
+  shipped nullable column, an existing prod table that never got it, every endpoint
+  touching that table 500ing while `/api/health` stayed green and gave no signal — hit
+  prod **twice** in one session (`tax_config`, then `financial_config`; both told the
+  user "not connected, nothing in preview" with a perfectly healthy-looking backend).
+  It is a safety net, not a substitute for knowing a migration is coming: a genuinely
+  breaking change (NOT NULL, rename, drop, type change) still needs a deliberate,
+  human-decided fix, and this won't touch it.
 - Month/tax-year boundaries are **Europe/London** via `app/dates.py` — no ad-hoc
   `datetime.now()` in domain code.
 - The sync engine never raises — a provider outage/missing key becomes a
