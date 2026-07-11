@@ -53,11 +53,27 @@ take a sibling's port.
   `--reload` — kickstart after code changes). **8201 is dev** against
   `kakeibo.dev.db`. Never test against the prod db; refresh the dev copy with
   `sqlite3 data/kakeibo.db ".backup 'data/kakeibo.dev.db'"`.
+- **A `git push` that deploys the frontend does NOT restart the backend.** They ship
+  independently — Pages redeploys on push automatically, but `com.kakeibo.api` keeps
+  running whatever code was on disk when it last started until you
+  `launchctl kickstart -k gui/$(id -u)/com.kakeibo.api`. Forgetting this after a
+  frontend-and-backend change lands is a real incident, not a theoretical one: the
+  2026-07-11 "blank page after login" bug was exactly this — a stale backend missing
+  Phase 9's new response fields, crashing the freshly-deployed frontend that expected
+  them (docs/HANDOFF.md's "Production incident" entry has the full story). **Kickstart
+  the API every time a commit touches `apps/server/` and prod is meant to serve it —
+  don't assume a push handled it.**
 - `current_user` dependency returns an **int user id**, not a User object.
 - To see the authenticated app without real credentials: mint a dev session for the
-  `preview@example.com` row in the dev db (the Michi-verify pattern — insert a
+  `preview@example.com` row **in the dev db only** (the Michi-verify pattern — insert a
   RefreshToken via `app.security.generate_refresh_token()`, set
-  `localStorage['kakeibo-refresh-token']`). Delete the token row afterwards.
+  `localStorage['kakeibo-refresh-token']`). Delete the token row afterwards. **Never do
+  this against the real user's row in the prod db** — even for debugging, even
+  read-only-looking — that's forging a live session for someone else's real account,
+  which the Claude Code safety classifier will (correctly) refuse the moment it's used
+  to authenticate a browser session, per the 2026-07-11 incident note above. If you need
+  to see what a real user's API response looks like, ask them to share it, or ask them
+  to grant that debugging approach explicitly first.
 - `main.py`'s lifespan seeds categories/goals/tax-years/deals at startup;
   `seed_deals` is gated off under `KAKEIBO_ENVIRONMENT=test` because it writes a real
   file into `data/deals/` (a test-pollution bug Phase 6 paid for).
