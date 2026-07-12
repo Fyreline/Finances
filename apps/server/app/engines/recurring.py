@@ -157,12 +157,27 @@ def _within_amount_tolerance(amount_abs: int, running_median_abs: float) -> bool
     return abs(amount_abs - running_median_abs) <= tolerance
 
 
-def cluster_by_amount(txns: list[TxnLike]) -> list[list[TxnLike]]:
+def cluster_by_amount(
+    txns: list[TxnLike], *, tolerate_earliest_outlier: bool = False
+) -> list[list[TxnLike]]:
     """Greedy amount clustering (docs/DATA_MODEL.md §3a.1). `txns` come in
     date order; each joins the first existing cluster whose running median it
     is within tolerance of, else opens a new cluster. Tesco's variable
     grocery amounts scatter into singletons (dropped later by the ≥3 rule);
-    a fixed sub coalesces into one cluster."""
+    a fixed sub coalesces into one cluster.
+
+    `tolerate_earliest_outlier` (docs/phases/PHASE-14 item 1b) is a NARROW
+    relaxation used only by recency-sensitive candidates (income anchors,
+    `direction="in"`): a brand-new job's first paycheck is commonly prorated /
+    a different onboarding amount, so it lands as a lone singleton immediately
+    before the otherwise-tight steady-state run and prevents that run from ever
+    reaching the ≥3-occurrence bar. When set, and ONLY when the single earliest
+    transaction is that lone leading singleton and the run right after it agrees
+    tightly (≥2 occurrences already clustered together), the earliest is folded
+    into that run as one allowed outlier. It never loosens the general
+    amount-tolerance rule (Tesco's scatter, a subscription price jump splitting
+    into two clusters) — off by default, and even on it only ever moves the
+    single leading outlier, nothing else."""
     clusters: list[list[TxnLike]] = []
     medians: list[float] = []
     for t in txns:
@@ -177,7 +192,26 @@ def cluster_by_amount(txns: list[TxnLike]) -> list[list[TxnLike]]:
         if not placed:
             clusters.append([t])
             medians.append(float(amt))
+    if tolerate_earliest_outlier:
+        clusters = _fold_earliest_outlier(clusters)
     return clusters
+
+
+def _fold_earliest_outlier(clusters: list[list[TxnLike]]) -> list[list[TxnLike]]:
+    """Fold a lone leading outlier into the tight run that immediately follows
+    it (docs/phases/PHASE-14 item 1b). Input is greedy-clustered from
+    date-sorted txns, so the globally-earliest transaction is always
+    ``clusters[0][0]``; if it opened a singleton cluster (it didn't amount-match
+    anything), and the very next cluster it forced open holds ≥2 tightly-agreeing
+    occurrences, prepend the earliest to that run. Only the single earliest is
+    ever moved, and only when there's already a solid run to attach it to — so a
+    genuinely irregular one-off is not resurrected."""
+    if len(clusters) < 2:
+        return clusters
+    if len(clusters[0]) != 1 or len(clusters[1]) < 2:
+        return clusters
+    merged = clusters[0] + clusters[1]  # earliest is date-before clusters[1]
+    return [merged] + clusters[2:]
 
 
 def cadence_for_gaps(gaps: list[int]) -> str | None:
@@ -271,13 +305,22 @@ def _is_cancel_candidate(
 
 
 def detect_recurring(
-    transactions: list[TxnLike], *, as_of: str | date, direction: str = "out"
+    transactions: list[TxnLike],
+    *,
+    as_of: str | date,
+    direction: str = "out",
+    tolerate_earliest_outlier: bool = False,
 ) -> list[DetectedRecurring]:
     """The whole of docs/DATA_MODEL.md §3a. `direction="out"` over outgoing
     transactions builds the `recurring_payments` committed roster;
     `direction="in"` detects salary/rent income anchors the same way
     (offered, not auto-assumed). Trailing 13 months only. Deterministic
-    order: highest confidence first (the UI orders by it — §3a.3)."""
+    order: highest confidence first (the UI orders by it — §3a.3).
+
+    `tolerate_earliest_outlier` (docs/phases/PHASE-14 item 1b) is forwarded to
+    `cluster_by_amount` — the income-anchor path sets it so a new job's prorated
+    first paycheck doesn't stop the following steady run reaching ≥3 occurrences.
+    Left off for the outgoing committed-cost path (unchanged behaviour)."""
     as_of_date = _parse(as_of)
     cutoff = _add_months(as_of_date, -_GATHER_MONTHS)
     recency_cutoff = _add_months(as_of_date, -_RECENCY_MONTHS)
@@ -300,7 +343,7 @@ def detect_recurring(
         if not mkey:
             continue
         group_sorted = sorted(group, key=lambda t: t.local_date)
-        for cluster in cluster_by_amount(group_sorted):
+        for cluster in cluster_by_amount(group_sorted, tolerate_earliest_outlier=tolerate_earliest_outlier):
             if len(cluster) < _MIN_OCCURRENCES:
                 continue
             cluster = sorted(cluster, key=lambda t: t.local_date)

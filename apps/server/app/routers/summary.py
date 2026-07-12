@@ -41,6 +41,7 @@ router = APIRouter(tags=["summary"])
 
 _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 _SETASIDE_MODES = {"auto", "fixed", "off"}
+_WEEK_POSITIONS = {"first", "second", "third", "fourth", "last"}
 
 
 @router.get("/summary/bubbles")
@@ -141,6 +142,10 @@ async def dismiss_tip(
 def _financial_config_dict(row: FinancialConfig) -> dict:
     return {
         "payday_day": row.payday_day,
+        # Weekday-based manual payday (docs/phases/PHASE-14 item 1c) — the "last
+        # Friday" style rule, mutually exclusive with payday_day.
+        "payday_weekday": row.payday_weekday,
+        "payday_week_position": row.payday_week_position,
         "net_monthly_income_minor": row.net_monthly_income_minor,
         "flat_share_minor": row.flat_share_minor,
         "buffer_minor": row.buffer_minor,
@@ -173,6 +178,8 @@ async def get_financial_config(
 
 class FinancialConfigBody(BaseModel):
     payday_day: int | None = None
+    payday_weekday: int | None = None
+    payday_week_position: str | None = None
     net_monthly_income_minor: int | None = None
     flat_share_minor: int | None = None
     buffer_minor: int | None = None
@@ -218,6 +225,20 @@ async def put_financial_config(
     patch = body.model_dump(exclude_unset=True)
     if "payday_day" in patch and patch["payday_day"] is not None and not 1 <= patch["payday_day"] <= 31:
         raise KakeiboHTTPException(status_code=400, detail="payday_day must be 1-31", code="invalid_payday")
+    if "payday_weekday" in patch and patch["payday_weekday"] is not None and not 0 <= patch["payday_weekday"] <= 6:
+        raise KakeiboHTTPException(
+            status_code=400, detail="payday_weekday must be 0-6 (0=Mon..6=Sun)", code="invalid_payday_weekday"
+        )
+    if (
+        "payday_week_position" in patch
+        and patch["payday_week_position"] is not None
+        and patch["payday_week_position"] not in _WEEK_POSITIONS
+    ):
+        raise KakeiboHTTPException(
+            status_code=400,
+            detail=f"payday_week_position must be one of {sorted(_WEEK_POSITIONS)}",
+            code="invalid_payday_week_position",
+        )
     if "tax_setaside_mode" in patch and patch["tax_setaside_mode"] not in _SETASIDE_MODES:
         raise KakeiboHTTPException(
             status_code=400, detail=f"tax_setaside_mode must be one of {sorted(_SETASIDE_MODES)}", code="invalid_mode"
@@ -229,6 +250,15 @@ async def put_financial_config(
             setattr(row, field, None if value is None else int(value))
             continue
         setattr(row, field, value)
+    # Mutual exclusivity (docs/phases/PHASE-14 item 1c): a numeric day-of-month
+    # payday and a weekday-rule payday can't both be "set" — whichever the user
+    # just provided wins, the other pair is cleared, so resolve_period() is never
+    # ambiguous about which manual rule applies.
+    if patch.get("payday_day") is not None:
+        row.payday_weekday = None
+        row.payday_week_position = None
+    elif patch.get("payday_weekday") is not None or patch.get("payday_week_position") is not None:
+        row.payday_day = None
     row.updated_at = now_london().strftime("%Y-%m-%d %H:%M:%S")
     if "fte_conversion_target_date" in patch:
         _sync_fte_runway_goal(session, user_id, patch["fte_conversion_target_date"])

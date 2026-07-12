@@ -266,6 +266,56 @@ def test_last_friday_payday_with_holiday_gap_is_detected_monthly():
     assert salary[0].confidence >= 0.35  # clears the income-anchor floor
 
 
+# ---------------------- Phase 14 item 1b: earliest-amount-outlier tolerance
+def test_earliest_outlier_folds_into_a_tight_following_run():
+    """A new job's prorated first paycheck (a lone leading amount-outlier)
+    followed by a tight steady-state run should, with the recency-sensitive
+    tolerance on, form ONE cluster of all three rather than a dropped singleton
+    plus a 2-occurrence cluster that never reaches ≥3 (docs/phases/PHASE-14
+    item 1b). SYNTHETIC amounts — a partial first month, then steady."""
+    txns = [
+        _tx("2026-04-24", 120_000, "NEW EMPLOYER"),  # prorated first paycheck
+        _tx("2026-05-29", 250_000, "NEW EMPLOYER"),  # steady-state
+        _tx("2026-06-26", 250_000, "NEW EMPLOYER"),
+    ]
+    # Default (outgoing/general) clustering splits it: singleton + a pair.
+    plain = cluster_by_amount(txns)
+    assert sorted(len(c) for c in plain) == [1, 2]
+    # Recency-sensitive clustering folds the leading outlier into the run.
+    folded = cluster_by_amount(txns, tolerate_earliest_outlier=True)
+    assert len(folded) == 1 and len(folded[0]) == 3
+
+    detected = detect_recurring(txns, as_of=AS_OF, direction="in", tolerate_earliest_outlier=True)
+    assert len(detected) == 1
+    anchor = detected[0]
+    assert anchor.cadence == "monthly"
+    assert anchor.occurrences == 3
+    assert anchor.typical_amount_minor == 250_000  # median, not dragged by the outlier
+    assert anchor.confidence >= 0.35  # clears the income-anchor floor
+
+
+def test_earliest_outlier_tolerance_does_not_resurrect_a_two_payment_job():
+    """Even with the tolerance, a genuinely 2-payment-old job (one prorated,
+    one steady) has only ONE tight occurrence after the outlier, so it stays
+    below ≥3 and is honestly not detected (docs/phases/PHASE-14 item 1b)."""
+    txns = [
+        _tx("2026-05-29", 120_000, "NEW EMPLOYER"),
+        _tx("2026-06-26", 250_000, "NEW EMPLOYER"),
+    ]
+    folded = cluster_by_amount(txns, tolerate_earliest_outlier=True)
+    assert max(len(c) for c in folded) < 3  # nothing to fold into (run of 1)
+    assert detect_recurring(txns, as_of=AS_OF, direction="in", tolerate_earliest_outlier=True) == []
+
+
+def test_earliest_outlier_tolerance_is_off_by_default_for_outgoings():
+    """The tolerance must never loosen the general outgoing/subscription path:
+    a variable-then-fixed shape at a merchant still splits (docs/phases/PHASE-14
+    item 1b scope note)."""
+    txns = [_tx("2026-04-01", -1500, "x"), _tx("2026-05-01", -999, "x"), _tx("2026-06-01", -999, "x")]
+    clusters = cluster_by_amount(txns)  # default: no folding
+    assert sorted(len(c) for c in clusters) == [1, 2]
+
+
 def test_eight_outgoing_committed_costs_unaffected_by_the_fix():
     """Regression guard (docs/phases/PHASE-13 item D.3): loosening the cadence/
     outlier logic must NOT stop the already-working outgoing committed-cost

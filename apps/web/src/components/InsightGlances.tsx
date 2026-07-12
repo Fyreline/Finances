@@ -36,13 +36,28 @@ export function SpendingGlance({ summary, tipCount }: { summary: MonthSummary; t
   )
 }
 
+/** Pick the item to headline as "next" (docs/phases/PHASE-14 item 2): among
+ * non-dismissed items with a `next_expected`, prefer a still-live `active`
+ * pattern over a `lapsed` one — a lapsed pattern's stale `next_expected` can
+ * be the soonest chronologically while being the least relevant to headline.
+ * Within each status band, soonest `next_expected` wins. Exported for testing. */
+export function pickNextRecurring(items: RecurringList['recurring']): RecurringList['recurring'][number] | undefined {
+  const eligible = items.filter(
+    (r) => r.next_expected && r.user_verdict !== 'cancelled' && r.user_verdict !== 'not_recurring',
+  )
+  const bySoonest = (a: (typeof eligible)[number], b: (typeof eligible)[number]) =>
+    a.next_expected! < b.next_expected! ? -1 : 1
+  const active = eligible.filter((r) => r.status === 'active').sort(bySoonest)
+  return active[0] ?? [...eligible].sort(bySoonest)[0]
+}
+
 /** Recurring bubble glance (docs/DESIGN.md §3b row 5): `£214.50/mo
- * committed`, a worth-a-look count, and the next-due line (`Netflix · 3 Aug`). */
+ * committed`, a worth-a-look count, and the next-due line — now with the
+ * amount, so it answers "how much, for what, when" (docs/phases/PHASE-14
+ * item 2: `Netflix · £9.99 · 3 Aug`). */
 export function RecurringGlance({ data }: { data: RecurringList }) {
   const worthLook = data.recurring.filter((r) => r.cancel_candidate && r.user_verdict !== 'cancelled').length
-  const next = data.recurring
-    .filter((r) => r.next_expected && r.user_verdict !== 'cancelled')
-    .sort((a, b) => (a.next_expected! < b.next_expected! ? -1 : 1))[0]
+  const next = pickNextRecurring(data.recurring)
   return (
     <>
       <span className={`text-2xl ${MONEY_CLASS} text-ink`}>
@@ -57,6 +72,7 @@ export function RecurringGlance({ data }: { data: RecurringList }) {
       {next && (
         <span className="font-mono text-[11px] text-ink-soft">
           {next.label} ·{' '}
+          <span className={`${MONEY_CLASS} text-ink-mid`}>{formatMinor(Math.abs(next.typical_amount_minor))}</span> ·{' '}
           {new Date(`${next.next_expected}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
         </span>
       )}

@@ -125,8 +125,18 @@ export function RecurringDetail() {
     return <p className="font-serif text-[15px] text-ink-mid">No recurring payments detected yet.</p>
   }
 
+  // Some detected items are the user's own internal transfers (a savings
+  // standing order, an investment-platform move, a cash withdrawal) that recur
+  // as regularly as a bill and get swept in with an unfamiliar counterparty
+  // label. Rather than guess which names are "really" businesses, make the
+  // existing dismiss affordance discoverable up front (docs/phases/PHASE-14
+  // item 2) — a first-time viewer sees why an odd name is here and what to do.
   return (
     <div className="space-y-2">
+      <p className="text-[12px] text-ink-soft">
+        Some of these may be transfers between your own accounts rather than bills — if a name looks unfamiliar, mark
+        it <span className="text-ink-mid">not a subscription</span> to drop it from your committed total.
+      </p>
       <div className="divide-y divide-line">
         {items.map((item) => (
           <RecurringRow key={`${item.label}-${item.cadence}`} item={item} onVerdict={onVerdict} />

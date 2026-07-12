@@ -17,6 +17,7 @@ import calendar
 import json
 import logging
 from datetime import date, datetime, timedelta
+from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -40,6 +41,14 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 _DB_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+# A detected income anchor whose most recent payment is more than this multiple
+# of its own observed cadence ago has gone quiet and is no longer treated as the
+# current salary (docs/phases/PHASE-14 item 1a). 1.8× tolerates one normal late-
+# payroll cycle without retiring a still-live pattern (~54 days for a ~30-day
+# cadence, ~63 for a five-week last-Friday one) while correctly dropping a
+# former employer's long-dead pattern after a job change.
+_ANCHOR_STALENESS_FACTOR = 1.8
 
 
 # --------------------------------------------------------------- shared loads
@@ -324,7 +333,7 @@ def _payday_month_summary_payload(session: Session, user_id: int, today: str) ->
     config = _financial_config_like(session, user_id)
     detected = _detect_income_anchor(session, user_id, today)
     payday_source = (
-        "manual" if config.payday_day is not None else ("detected" if detected is not None else None)
+        "manual" if insights._manual_payday_set(config) else ("detected" if detected is not None else None)
     )
     period = insights.resolve_period(config, today, detected)
     if period is None:
@@ -390,6 +399,8 @@ def _financial_config_like(session: Session, user_id: int) -> insights.Financial
             buffer_minor=15000,
             tax_setaside_mode="auto",
             tax_setaside_fixed_minor=None,
+            payday_weekday=None,
+            payday_week_position=None,
         )
     return insights.FinancialConfigLike(
         payday_day=row.payday_day,
@@ -398,6 +409,8 @@ def _financial_config_like(session: Session, user_id: int) -> insights.Financial
         buffer_minor=row.buffer_minor,
         tax_setaside_mode=row.tax_setaside_mode,
         tax_setaside_fixed_minor=row.tax_setaside_fixed_minor,
+        payday_weekday=row.payday_weekday,
+        payday_week_position=row.payday_week_position,
     )
 
 
@@ -491,27 +504,45 @@ def _detect_income_anchor(session: Session, user_id: int, as_of: str) -> insight
     Selection heuristic (documented so it is auditable, not a black box):
 
     - Detect incoming recurring patterns the same way outgoings are detected
-      (same clustering/cadence/confidence thresholds — no new numbers invented).
+      (same clustering/cadence/confidence thresholds — no new numbers invented),
+      with the recency-sensitive amount-outlier tolerance on (docs/phases/
+      PHASE-14 item 1b) so a new job's prorated first paycheck doesn't stop the
+      following steady run reaching ≥3 occurrences.
     - Keep only **monthly** cadence at or above the existing confidence floor
       (`recurring._CONFIDENCE_FLOOR`). Monthly because `net_monthly_income`
       must mean a *monthly* figure — a weekly anchor's typical amount is a
-      weekly sum and would misrepresent it. Monthly's 28–33 day window already
+      weekly sum and would misrepresent it. Monthly's 27–36 day window already
       absorbs "last Friday of the month" (its calendar-day gaps cluster there).
-    - Among those, take the one with **by far the largest typical amount** —
-      salary, distinct from the smaller recurring incoming amounts (refunds,
-      interest, and — deliberately — rental income, which is smaller here and
-      is summed separately by `_period_rental_income`, never folded into the
-      salary figure).
+    - **Drop anchors that have gone quiet** (docs/phases/PHASE-14 item 1a): a
+      monthly pattern whose `last_seen` is more than ~1.8× its own observed
+      cadence ago is no longer the current salary, however historically
+      high-confidence it was — a former employer's long-dead salary must stop
+      being selected the moment a job changes. The 1.8× multiple tolerates one
+      normal late-payroll cycle (a slightly late payment) without retiring a
+      still-live pattern.
+    - Among what survives, take the one with **by far the largest typical
+      amount** — salary, distinct from the smaller recurring incoming amounts
+      (refunds, interest, and — deliberately — rental income, which is smaller
+      here and is summed separately by `_period_rental_income`, never folded
+      into the salary figure).
 
-    Returns `None` when there is no confident monthly income anchor yet (a new
-    account, or too little/too irregular history) — the caller then falls back
-    to `setup_missing`, never a guessed number."""
-    detected = recurring.detect_recurring(_load_txns(session, user_id), as_of=as_of, direction="in")
-    candidates = [
-        d
-        for d in detected
-        if d.cadence == "monthly" and d.confidence >= recurring._CONFIDENCE_FLOOR
-    ]
+    Returns `None` when there is no confident, still-live monthly income anchor
+    (a new account, a job just changed with too little new history yet, or too
+    irregular a pattern) — the caller then falls back to `setup_missing`, the
+    honest "no confident answer" state, never a guessed or stale number."""
+    detected = recurring.detect_recurring(
+        _load_txns(session, user_id), as_of=as_of, direction="in", tolerate_earliest_outlier=True
+    )
+    as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date()
+    candidates: list[recurring.DetectedRecurring] = []
+    for d in detected:
+        if d.cadence != "monthly" or d.confidence < recurring._CONFIDENCE_FLOOR:
+            continue
+        last = datetime.strptime(d.last_seen, "%Y-%m-%d").date()
+        cadence_days = median(d.gaps_days) if d.gaps_days else recurring._CADENCE_DAYS[d.cadence]
+        if (as_of_date - last).days > _ANCHOR_STALENESS_FACTOR * cadence_days:
+            continue  # gone quiet — not the current salary anymore (item 1a)
+        candidates.append(d)
     if not candidates:
         return None
     best = max(candidates, key=lambda d: d.typical_amount_minor)

@@ -286,7 +286,8 @@ GET  /api/tips?period=2026-07    → {tips:[{id, rule_key, severity, title, body
 POST /api/tips/{id}/dismiss      → 200
 # Financial config (the safe-to-spend inputs, DATA_MODEL §5) — added Phase 4;
 # §6a depends on it and PHASE-4 item 1 requires the form. Parallels /api/tax/config.
-GET  /api/financial-config       → {financial_config:{payday_day, net_monthly_income_minor,
+GET  /api/financial-config       → {financial_config:{payday_day, payday_weekday: int|null,
+                                    payday_week_position: str|null, net_monthly_income_minor,
                                     flat_share_minor, buffer_minor, tax_setaside_mode,
                                     tax_setaside_fixed_minor, pension_contributing: bool|null,
                                     fte_conversion_target_date: str|null}}  # default row if none
@@ -294,6 +295,10 @@ PUT  /api/financial-config       {any subset of the above} → 200 {financial_co
                                   # setting fte_conversion_target_date seeds/re-dates the
                                   # 'fte_runway' goal (S4, Phase 9) — target_minor stays user-set
                                   # via the ordinary PATCH /api/goals/fte_runway, never invented
+                                  # PHASE-14 1c: payday_weekday (0=Mon..6=Sun) + payday_week_position
+                                  # ('first'|'second'|'third'|'fourth'|'last') express a weekday-based
+                                  # payday ("last Friday"). Mutually exclusive with payday_day — setting
+                                  # either kind clears the other pair, so it's never ambiguous which wins.
 
 # Recurring
 GET  /api/recurring              → {recurring:[{id, label, cadence, typical_amount_minor,
@@ -396,12 +401,14 @@ GET  /api/health → {status:"ok", identity:"reachable"|"unreachable",
 
 ### 6a. Safe-to-spend (goal 1) — `GET /api/summary/safe-to-spend`
 
-Month = payday-anchored. The period comes from `financial_config.payday_day` when set
-manually; **otherwise (Phase 11) from a detected salary anchor's own transaction
-history** — `period_start` = the most recent detected salary date, `period_end` =
-`+ median(observed gaps) − 1`, rolled forward by the median gap if `today` has already
-passed it. This represents "last Friday of the month" (a different day-of-month each
-month) that the literal 1–31 `payday_day` cannot. All figures pence:
+Month = payday-anchored. The period comes from a **manual** payday when set — either
+`financial_config.payday_day` (numeric day-of-month) or, since Phase 14, a weekday rule
+(`payday_weekday` + `payday_week_position`, e.g. "last Friday of the month", which the
+literal 1–31 `payday_day` cannot express); **otherwise (Phase 11) from a detected salary
+anchor's own transaction history** — `period_start` = the most recent detected salary
+date, `period_end` = `+ median(observed gaps) − 1`, rolled forward by the median gap if
+`today` has already passed it. `payday_day` takes precedence over the weekday rule if
+both are somehow set (the PUT keeps them mutually exclusive). All figures pence:
 
 ```
 income        = net_monthly_income (config) + confirmed rental income landing this period
@@ -442,11 +449,20 @@ human-readable why — `{label, typical_amount_minor, cadence, median_gap_days,
 occurrences, confidence, last_seen}` — so the UI can say "worked out from a recurring
 payment from X averaging £Y, roughly every N days" and offer an override, never presenting
 an inferred figure as if typed in. `detected_income` is `null` when both fields are
-manual or still in setup. **No schema change**: this is pure computation over the
-already-synced `transactions` — `financial_config` gains no columns. The income anchor
-is the single largest **monthly** incoming recurring pattern at/above the confidence
-floor (salary), detected by the same `engines/recurring.py` machinery as outgoings via
-its long-present `direction="in"` path.
+manual or still in setup. The income-anchor detection itself is pure computation over
+the already-synced `transactions` (Phase 14's `financial_config` columns exist only for
+the manual weekday override above, not for detection). The income anchor is the single
+largest **monthly** incoming recurring pattern at/above the confidence floor (salary),
+detected by the same `engines/recurring.py` machinery as outgoings via its long-present
+`direction="in"` path, with two Phase 14 refinements: **(1a) staleness** — a pattern
+whose most recent payment is more than ~1.8× its own observed cadence ago has gone quiet
+and is no longer selected as the current salary (so a former employer's long-dead-but-
+high-confidence pattern stops being chosen after a job change; if that disqualifies every
+candidate the fields relying on detection fall to `setup_missing`, never a stale answer);
+**(1b) earliest-amount-outlier tolerance** — a new job's prorated first paycheck (a lone
+leading amount-outlier) is folded into the otherwise-tight steady run behind it so the run
+can still reach the ≥3-occurrence bar. A manually-set `net_monthly_income_minor` is
+unaffected by either and keeps working exactly as before.
 
 ### 6b. Monthly breakdown + verdicts (goal 5) — `GET /api/summary/month/{yyyy-mm}`
 

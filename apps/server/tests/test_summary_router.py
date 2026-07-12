@@ -301,6 +301,149 @@ def test_committed_and_rental_still_work_in_detected_path(authed):
     assert s["income_minor"] == _SYNTH_SALARY_MINOR + 95_000
 
 
+# ------------------------ Phase 14 1a/1b: income-anchor staleness after a job change
+_OLD_EMPLOYER_MINOR = 300_000  # larger, so the largest-amount heuristic WOULD pick it
+_NEW_STEADY_MINOR = 250_000
+# A long, high-confidence monthly salary that stopped months before `today`.
+_STALE_OLD_DATES = ("2025-06-27", "2025-07-25", "2025-08-29", "2025-09-26", "2025-10-31",
+                    "2025-11-28", "2025-12-26", "2026-01-30", "2026-02-27")
+
+
+def _seed_stale_old_salary(account_id: int) -> None:
+    for i, d in enumerate(_STALE_OLD_DATES):
+        _seed_txn(account_id, f"old-{i}", amount_minor=_OLD_EMPLOYER_MINOR, local_date=d, counterparty="OLD EMPLOYER", category_key=None)
+
+
+def _seed_fresh_new_salary(account_id: int) -> None:
+    # A prorated first paycheck (item 1b amount-outlier) + a fresh steady run.
+    _seed_txn(account_id, "new-0", amount_minor=120_000, local_date="2026-04-24", counterparty="NEW EMPLOYER", category_key=None)
+    for i, d in enumerate(("2026-05-29", "2026-06-26", "2026-07-31")):
+        _seed_txn(account_id, f"new-{i + 1}", amount_minor=_NEW_STEADY_MINOR, local_date=d, counterparty="NEW EMPLOYER", category_key=None)
+
+
+def test_stale_old_anchor_not_selected_fresh_new_one_is(authed):
+    """docs/phases/PHASE-14 items 1a+1b: after a job change, the former
+    employer's long-dead-but-high-confidence (and larger) monthly salary must
+    NOT be selected as the current anchor, and the new employer's fresh run —
+    which only reaches ≥3 occurrences once the prorated first paycheck folds in
+    (1b) — is detected instead. This is the exact real bug shape, synthetic."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_stale_old_salary(account_id)
+    _seed_fresh_new_salary(account_id)
+
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["payday_source"] == "detected"
+    assert s["net_income_source"] == "detected"
+    assert s["net_income_minor"] == _NEW_STEADY_MINOR  # the fresh 250k, NOT the stale 300k
+    assert s["detected_income"]["label"] == "NEW EMPLOYER"
+    # Period is anchored on the recent salary, not the months-stale one — the
+    # nonsensical "old cycle rolled forward to today" period is gone.
+    assert s["period"]["start"] == "2026-07-31"
+    assert s["remaining_minor"] is not None and s["per_day_remaining_minor"] is not None
+
+
+def test_only_a_stale_anchor_falls_to_setup_missing_not_a_wrong_period(authed):
+    """docs/phases/PHASE-14 item 1a: when the ONLY confident pattern has gone
+    quiet, detection returns nothing and the honest `setup_missing` state shows
+    — never the stale pattern rolled forward into a wrong current period."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_stale_old_salary(account_id)
+
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["safe_to_spend_minor"] is None
+    assert "payday_day" in s["setup_missing"]
+    assert s["payday_source"] is None
+    assert s["detected_income"] is None
+
+
+def test_manual_income_survives_staleness_but_payday_falls_to_setup(authed):
+    """docs/phases/PHASE-14 item 1a: the real user's workaround — manual net
+    income, no manual payday — keeps working. Staleness only retires the
+    *detected* payday; a manually-set income is never disturbed."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_stale_old_salary(account_id)
+    client.put("/api/financial-config", headers=headers, json={"net_monthly_income_minor": 260_000})
+
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["net_income_source"] == "manual"
+    assert s["payday_source"] is None
+    assert "payday_day" in s["setup_missing"]
+    assert "net_monthly_income" not in s["setup_missing"]
+    assert s["safe_to_spend_minor"] is None  # honest: payday still unknown
+
+
+# ----------------------------- Phase 14 1c: manual weekday payday override (HTTP)
+def test_financial_config_weekday_payday_round_trip_and_mutual_exclusivity(authed):
+    client, user_id, headers = authed
+    client.put("/api/financial-config", headers=headers, json={"payday_day": 15})
+    got = client.put(
+        "/api/financial-config", headers=headers,
+        json={"payday_weekday": 4, "payday_week_position": "last"},
+    ).json()["financial_config"]
+    # Setting the weekday rule clears the numeric day (mutually exclusive).
+    assert got["payday_weekday"] == 4 and got["payday_week_position"] == "last"
+    assert got["payday_day"] is None
+    # Setting a numeric day back clears the weekday pair.
+    got2 = client.put("/api/financial-config", headers=headers, json={"payday_day": 20}).json()["financial_config"]
+    assert got2["payday_day"] == 20
+    assert got2["payday_weekday"] is None and got2["payday_week_position"] is None
+
+
+def test_financial_config_rejects_bad_weekday_and_position(authed):
+    client, user_id, headers = authed
+    assert client.put("/api/financial-config", headers=headers, json={"payday_weekday": 9}).status_code == 400
+    assert client.put("/api/financial-config", headers=headers, json={"payday_week_position": "fifth"}).status_code == 400
+
+
+def test_weekday_payday_override_produces_a_sane_period_via_http(authed):
+    """docs/phases/PHASE-14 item 1c end-to-end acceptance: a last-Friday payday
+    set through the real PUT gives a sane current period and non-null
+    remaining/per-day — the standing fix for the cold-start gap after a job
+    change, verified through the HTTP layer, not just the pure engine."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    _seed_fresh_new_salary(account_id)  # supplies detected net income
+    client.put(
+        "/api/financial-config", headers=headers,
+        json={"payday_weekday": 4, "payday_week_position": "last"},
+    )
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["payday_source"] == "manual"  # the weekday rule is a manual payday
+    assert s["period"]["start"] == "2026-07-31" and s["period"]["end"] == "2026-08-27"
+    assert s["safe_to_spend_minor"] is not None
+    assert s["remaining_minor"] is not None and s["per_day_remaining_minor"] is not None
+
+
+def test_rental_income_unaffected_by_weekday_payday_path(authed):
+    """docs/phases/PHASE-14 item 1c: rental income is summed independently of
+    the active period generator — confirm the new weekday manual path leaves
+    `_period_rental_income` behaviour intact."""
+    client, user_id, headers = authed
+    account_id = _seed_account(user_id)
+    client.put(
+        "/api/financial-config", headers=headers,
+        json={"payday_weekday": 4, "payday_week_position": "last", "net_monthly_income_minor": 250_000},
+    )
+    with SessionLocal() as session:
+        session.add(
+            Transaction(
+                account_id=account_id, provider_uid="rent-wk", amount_minor=95_000,
+                transaction_time="2026-08-05T12:00:00.000Z", local_date="2026-08-05", settled=1,
+                counterparty="LETTING AGENT", reference="", provider_category=None,
+                category_id=None, category_source="provider", is_rental=1, raw_json="{}",
+            )
+        )
+        session.commit()
+
+    s = _safe_to_spend(user_id, "2026-08-05")
+    assert s["period"]["start"] == "2026-07-31" and s["period"]["end"] == "2026-08-27"
+    assert s["rental_income_minor"] == 95_000
+    assert s["income_minor"] == 250_000 + 95_000
+
+
 # ---------------------------------------------------------------- month summary
 def test_month_summary_verdict_pill_kraft_not_crimson(authed):
     """A category ~25% over its band → above_average, not severe (kraft, not

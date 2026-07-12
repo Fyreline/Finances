@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react'
-import { api, type FinancialConfig, type SafeToSpend } from '../../api'
+import { api, type FinancialConfig, type PaydayWeekPosition, type SafeToSpend } from '../../api'
 import { safeToSpendSegments, WaterfallStrip } from '../../charts/WaterfallStrip'
 import { useSafeToSpend } from '../../hooks/useSafeToSpend'
 import { formatMinor, MONEY_CLASS, poundsToMinor } from '../../money'
+
+// Weekday-based manual payday (docs/phases/PHASE-14 item 1c). Index matches
+// date.weekday(): 0=Monday..6=Sunday, so the select value maps straight to the
+// backend column with no conversion.
+const WEEKDAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const WEEK_POSITIONS: PaydayWeekPosition[] = ['first', 'second', 'third', 'fourth', 'last']
+const titleCase = (s: string) => s[0].toUpperCase() + s.slice(1)
 
 function periodLabel(start: string | null, end: string | null): string {
   if (!start || !end) return ''
@@ -64,11 +71,15 @@ function DetectedBanner({ data, onOverride }: { data: SafeToSpend; onOverride: (
 
 function ConfigForm({ onSaved }: { onSaved: () => void }) {
   const [config, setConfig] = useState<FinancialConfig | null>(null)
+  const [paydayMode, setPaydayMode] = useState<'day' | 'weekday'>('day')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    api.financialConfig().then((r) => setConfig(r.financial_config))
+    api.financialConfig().then((r) => {
+      setConfig(r.financial_config)
+      setPaydayMode(r.financial_config.payday_weekday !== null ? 'weekday' : 'day')
+    })
   }, [])
 
   if (!config) return <p className="font-mono text-[11px] text-ink-soft">Loading settings…</p>
@@ -81,8 +92,15 @@ function ConfigForm({ onSaved }: { onSaved: () => void }) {
     setSaving(true)
     setErr(null)
     try {
+      // Day-of-month and day-of-week paydays are mutually exclusive: send only
+      // the active pair, explicitly nulling the other so the backend never
+      // holds both (docs/phases/PHASE-14 item 1c).
+      const paydayFields =
+        paydayMode === 'weekday'
+          ? { payday_day: null, payday_weekday: config.payday_weekday, payday_week_position: config.payday_week_position }
+          : { payday_day: config.payday_day, payday_weekday: null, payday_week_position: null }
       await api.putFinancialConfig({
-        payday_day: config.payday_day,
+        ...paydayFields,
         net_monthly_income_minor: config.net_monthly_income_minor,
         flat_share_minor: config.flat_share_minor,
         buffer_minor: config.buffer_minor,
@@ -98,21 +116,79 @@ function ConfigForm({ onSaved }: { onSaved: () => void }) {
 
   const field = 'w-28 rounded-md border border-line bg-paper px-2 py-1 text-right font-mono text-[13px] text-ink'
   const label = 'flex items-center justify-between gap-3 text-[13px] text-ink-mid'
+  const toggleBtn = (active: boolean) =>
+    `px-2 py-1 ${active ? 'bg-clay/10 text-clay-deep' : 'text-ink-soft hover:text-ink-mid'}`
 
   return (
     <div className="space-y-3 rounded-lg border border-line bg-paper p-4">
       <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">Your figures</p>
-      <label className={label}>
-        Payday (day of month)
-        <input
-          type="number"
-          min={1}
-          max={31}
-          className={field}
-          value={config.payday_day ?? ''}
-          onChange={(e) => setField({ payday_day: e.target.value ? Number(e.target.value) : null })}
-        />
-      </label>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3 text-[13px] text-ink-mid">
+          <span>Payday</span>
+          <div className="inline-flex overflow-hidden rounded-md border border-line font-mono text-[11px]">
+            <button type="button" onClick={() => setPaydayMode('day')} className={toggleBtn(paydayMode === 'day')}>
+              Day of month
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPaydayMode('weekday')
+                // Seed sensible defaults so the shown selection is what saves.
+                setField({
+                  payday_weekday: config.payday_weekday ?? 4, // Friday
+                  payday_week_position: config.payday_week_position ?? 'last',
+                })
+              }}
+              className={toggleBtn(paydayMode === 'weekday')}
+            >
+              Day of week
+            </button>
+          </div>
+        </div>
+        {paydayMode === 'day' ? (
+          <label className={label}>
+            <span>Day of month</span>
+            <input
+              type="number"
+              min={1}
+              max={31}
+              className={field}
+              value={config.payday_day ?? ''}
+              onChange={(e) => setField({ payday_day: e.target.value ? Number(e.target.value) : null })}
+            />
+          </label>
+        ) : (
+          <div className="space-y-1">
+            <div className="flex items-center justify-end gap-2">
+              <select
+                aria-label="Which week"
+                className={field}
+                value={config.payday_week_position ?? 'last'}
+                onChange={(e) => setField({ payday_week_position: e.target.value as PaydayWeekPosition })}
+              >
+                {WEEK_POSITIONS.map((p) => (
+                  <option key={p} value={p}>
+                    {titleCase(p)}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Which weekday"
+                className={field}
+                value={config.payday_weekday ?? 4}
+                onChange={(e) => setField({ payday_weekday: Number(e.target.value) })}
+              >
+                {WEEKDAY_LABELS.map((w, i) => (
+                  <option key={w} value={i}>
+                    {w}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-right font-mono text-[10px] text-ink-soft">e.g. last Friday of the month</p>
+          </div>
+        )}
+      </div>
       <label className={label}>
         Take-home pay (£/month)
         <input

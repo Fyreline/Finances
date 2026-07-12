@@ -263,6 +263,13 @@ groceries), verdict bands 3–6 months per PLAN §4 S2.
 financial_config                    -- single row per user; the safe-to-spend inputs
   user_id INTEGER PK REFERENCES users(id)
   payday_day INTEGER                -- e.g. 28; NULL until confirmed (HANDOFF Q5)
+  payday_weekday INTEGER            -- PHASE-14 1c: weekday-based manual payday, date.weekday()
+                                     --   0=Mon..6=Sun; with payday_week_position expresses "last
+                                     --   Friday of the month" etc. that payday_day (1–31) can't.
+  payday_week_position TEXT         --   'first'|'second'|'third'|'fourth'|'last'. Both NULL unless
+                                     --   used. Mutually exclusive with payday_day (the PUT clears
+                                     --   the other pair); resolve_period() gives payday_day
+                                     --   precedence if both are somehow set. Self-heals via schema_sync.
   net_monthly_income_minor INTEGER  -- take-home; NULL until confirmed → safe-to-spend shows setup card
   flat_share_minor INTEGER          -- monthly payment for the flat (HANDOFF Q6)
   buffer_minor INTEGER NOT NULL DEFAULT 15000   -- £150 monthly slack, user-tunable

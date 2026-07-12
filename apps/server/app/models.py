@@ -194,6 +194,14 @@ class FinancialConfig(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     payday_day: Mapped[int | None] = mapped_column(nullable=True)
+    # Weekday-based manual payday (docs/phases/PHASE-14 item 1c) — an alternative
+    # to the numeric day-of-month `payday_day`, expressing "the Nth (or last)
+    # weekday of the month" (e.g. last Friday), which a literal 1–31 can't. Both
+    # nullable, self-heal via app/schema_sync.py. Mutually exclusive with
+    # payday_day (the PUT clears the other pair); resolve_period() gives payday_day
+    # precedence if somehow both are set. weekday is date.weekday(): 0=Mon..6=Sun.
+    payday_weekday: Mapped[int | None] = mapped_column(nullable=True)
+    payday_week_position: Mapped[str | None] = mapped_column(nullable=True)  # first|second|third|fourth|last
     net_monthly_income_minor: Mapped[int | None] = mapped_column(nullable=True)
     flat_share_minor: Mapped[int | None] = mapped_column(nullable=True)
     buffer_minor: Mapped[int] = mapped_column(nullable=False, server_default=text("15000"))

@@ -3,7 +3,7 @@
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from app.engines.insights import (
     CategoryMonthInput,
@@ -13,8 +13,11 @@ from app.engines.insights import (
     GoalSetAsideInput,
     months_to_next_31_jan,
     month_summary,
+    nth_weekday_of_month,
     payday_period,
     payday_period_from_detected,
+    payday_period_from_weekday,
+    resolve_period,
     safe_to_spend,
     tip_cancel_candidates,
     tip_category_trending_up,
@@ -43,6 +46,76 @@ def test_payday_period_clamps_31st_in_february():
     start, end = payday_period("2026-02-15", 31)
     assert start.isoformat() == "2026-01-31"
     assert end.isoformat() == "2026-02-27"  # day before 28 Feb (clamped payday)
+
+
+# ------------------------------------ §6a Phase 14 1c: weekday-based manual payday
+def test_nth_weekday_of_month_last_friday_matches_known_dates():
+    # Last Fridays already pinned by the Phase 11 fixture (Mon=0..Sun=6, Fri=4).
+    assert nth_weekday_of_month(2026, 7, 4, "last") == date(2026, 7, 31)
+    assert nth_weekday_of_month(2026, 6, 4, "last") == date(2026, 6, 26)
+    assert nth_weekday_of_month(2026, 1, 4, "last") == date(2026, 1, 30)
+
+
+def test_nth_weekday_of_month_ordinal_positions_stay_in_month():
+    first = nth_weekday_of_month(2026, 3, 0, "first")  # first Monday of March 2026
+    assert first.weekday() == 0 and first.month == 3
+    assert nth_weekday_of_month(2026, 3, 0, "second") == first + timedelta(days=7)
+    assert nth_weekday_of_month(2026, 3, 0, "third") == first + timedelta(days=14)
+    assert nth_weekday_of_month(2026, 3, 0, "fourth") == first + timedelta(days=21)
+    assert nth_weekday_of_month(2026, 3, 0, "fourth").month == 3  # never overflows
+
+
+def test_payday_period_from_weekday_last_friday_mid_period():
+    """A 'last Friday' rule at 5 Aug 2026 yields the same window the detected
+    last-Friday anchor produces — 31 Jul → 27 Aug (day before 28 Aug)."""
+    start, end = payday_period_from_weekday("2026-08-05", 4, "last")
+    assert start == date(2026, 7, 31)
+    assert end == date(2026, 8, 27)
+
+
+def test_payday_period_from_weekday_on_anchor_is_period_start():
+    start, end = payday_period_from_weekday("2026-07-31", 4, "last")
+    assert start == date(2026, 7, 31)
+    assert end == date(2026, 8, 27)
+
+
+def test_resolve_period_weekday_manual_wins_over_detected():
+    """A weekday-rule payday is manual and beats a detected anchor, just like
+    numeric payday_day does (docs/phases/PHASE-14 item 1c — a second kind of
+    manual, not a new precedence tier)."""
+    config = _config(payday_day=None, payday_weekday=4, payday_week_position="last")
+    period = resolve_period(config, "2026-08-05", _detected())
+    assert period == (date(2026, 7, 31), date(2026, 8, 27))
+
+
+def test_resolve_period_numeric_payday_beats_weekday_if_both_somehow_set():
+    config = _config(payday_day=15, payday_weekday=4, payday_week_position="last")
+    start, _ = resolve_period(config, "2026-08-05", None)
+    assert start == date(2026, 7, 15)  # numeric payday_day precedence, unambiguous
+
+
+def test_safe_to_spend_weekday_manual_payday_is_manual_and_period_sane():
+    """The acceptance bar for 1c: a manually-configured last-Friday payday
+    produces a correct period AND sane remaining/per-day figures (not just that
+    they changed) — the exact failure the stale-anchor bug caused."""
+    result = safe_to_spend(
+        config=_config(
+            payday_day=None, payday_weekday=4, payday_week_position="last",
+            net_monthly_income_minor=250_000, flat_share_minor=0,
+        ),
+        today="2026-08-05",
+        committed=[],
+        rental_income_minor=0,
+        goals=[],
+        discretionary_spent_minor=40_000,
+        annual_tax_estimate_minor=None,
+        detected_income=None,
+    )
+    assert result.payday_source == "manual"
+    assert result.net_income_source == "manual"
+    assert result.period_start == "2026-07-31" and result.period_end == "2026-08-27"
+    assert result.remaining_minor == 250_000 - 15_000 - 40_000
+    assert result.per_day_remaining_minor is not None and result.days_left > 0
 
 
 def test_months_to_next_31_jan():

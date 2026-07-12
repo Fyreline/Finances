@@ -428,8 +428,16 @@ export interface RecurringList {
   totals: { monthly_committed_minor: number }
 }
 
+export type PaydayWeekPosition = 'first' | 'second' | 'third' | 'fourth' | 'last'
+
 export interface FinancialConfig {
   payday_day: number | null
+  // Weekday-based manual payday (docs/phases/PHASE-14 item 1c) — "the Nth/last
+  // <weekday> of the month" (e.g. last Friday), which payday_day (1–31) can't
+  // express. Mutually exclusive with payday_day: setting one clears the other.
+  // weekday is date.weekday(): 0=Mon..6=Sun.
+  payday_weekday: number | null
+  payday_week_position: PaydayWeekPosition | null
   net_monthly_income_minor: number | null
   flat_share_minor: number | null
   buffer_minor: number

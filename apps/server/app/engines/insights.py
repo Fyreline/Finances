@@ -111,6 +111,46 @@ def payday_period_from_detected(
     return start, end
 
 
+_WEEK_POSITION_INDEX = {"first": 0, "second": 1, "third": 2, "fourth": 3}
+WEEK_POSITIONS = ("first", "second", "third", "fourth", "last")
+
+
+def nth_weekday_of_month(year: int, month: int, weekday: int, position: str) -> date:
+    """The date of the Nth (or last) `weekday` in a month (docs/phases/PHASE-14
+    item 1c). `weekday` is `date.weekday()` — 0=Monday … 6=Sunday. `position` ∈
+    {first, second, third, fourth, last}. 'fourth' always lands on day 22–28, so
+    it never overflows the month; 'last' walks back from the month's final day."""
+    first = date(year, month, 1)
+    offset = (weekday - first.weekday()) % 7
+    first_occurrence = first + timedelta(days=offset)
+    if position == "last":
+        last_day = date(year, month, _days_in_month(year, month))
+        back = (last_day.weekday() - weekday) % 7
+        return last_day - timedelta(days=back)
+    return first_occurrence + timedelta(days=7 * _WEEK_POSITION_INDEX[position])
+
+
+def payday_period_from_weekday(
+    today: str | date, weekday: int, week_position: str
+) -> tuple[date, date]:
+    """The payday-anchored period containing `today` for a weekday-based manual
+    payday (docs/phases/PHASE-14 item 1c) — e.g. "last Friday of the month".
+    Mirrors `payday_period`'s boundary semantics exactly (most recent anchor
+    inclusive → day before the next anchor), just finding the anchor date by the
+    Nth/last-weekday rule instead of a fixed day-of-month."""
+    t = _parse(today)
+    this_anchor = nth_weekday_of_month(t.year, t.month, weekday, week_position)
+    if t >= this_anchor:
+        start = this_anchor
+        ny, nm = _next_month(t.year, t.month)
+        nxt = nth_weekday_of_month(ny, nm, weekday, week_position)
+    else:
+        py, pm = _prev_month(t.year, t.month)
+        start = nth_weekday_of_month(py, pm, weekday, week_position)
+        nxt = this_anchor
+    return start, nxt - timedelta(days=1)
+
+
 def months_to_next_31_jan(today: str | date) -> int:
     """Whole months from `today` to the next 31 January (the SA payment
     deadline) — the divisor for the 'auto' tax set-aside (docs/API.md §6a).
@@ -133,6 +173,20 @@ class FinancialConfigLike:
     buffer_minor: int
     tax_setaside_mode: str  # 'auto' | 'fixed' | 'off'
     tax_setaside_fixed_minor: int | None
+    # Weekday-based manual payday (docs/phases/PHASE-14 item 1c) — the second
+    # *kind* of manual payday, not a new precedence tier. Defaulted so existing
+    # constructions (and tests) that predate it keep working unchanged.
+    payday_weekday: int | None = None  # date.weekday(): 0=Mon..6=Sun
+    payday_week_position: str | None = None  # first|second|third|fourth|last
+
+
+def _manual_payday_set(config: FinancialConfigLike) -> bool:
+    """A manual payday is set either as a numeric day-of-month (`payday_day`) or
+    as a complete weekday rule (`payday_weekday` + `payday_week_position`).
+    Either counts as `payday_source == 'manual'` and wins over detection."""
+    return config.payday_day is not None or (
+        config.payday_weekday is not None and config.payday_week_position is not None
+    )
 
 
 @dataclass(frozen=True)
@@ -228,11 +282,15 @@ def resolve_period(
     """The current payday-anchored period, choosing the source the same way
     `safe_to_spend` does so period-scoped figures (rental income, discretionary
     spend) computed in the service layer can never disagree with the engine
-    (docs/phases/PHASE-11-payday-autodetect.md §2). Manual `payday_day` wins;
-    else a detected income anchor's own history; else `None` (period unknown —
-    still in setup). Deterministic, so calling it twice gives the same window."""
+    (docs/phases/PHASE-11-payday-autodetect.md §2). A manual payday wins —
+    either the numeric `payday_day` or the weekday rule (docs/phases/PHASE-14
+    item 1c), both a second *kind* of manual, not a new precedence tier; else a
+    detected income anchor's own history; else `None` (period unknown — still in
+    setup). Deterministic, so calling it twice gives the same window."""
     if config.payday_day is not None:
         return payday_period(today, config.payday_day)
+    if config.payday_weekday is not None and config.payday_week_position is not None:
+        return payday_period_from_weekday(today, config.payday_weekday, config.payday_week_position)
     if detected_income is not None:
         return payday_period_from_detected(detected_income.last_seen, detected_income.gaps_days, today)
     return None
@@ -264,9 +322,10 @@ def safe_to_spend(
     salary anchor (`detected_income`) fills only the fields the user left
     unset, and is always surfaced as `'detected'` with an auditable detail
     block — never silently presented as a typed-in figure."""
-    # Per-field provenance: manual beats detected beats absent.
+    # Per-field provenance: manual beats detected beats absent. "Manual" now
+    # covers both a numeric payday_day and a weekday rule (docs/phases/PHASE-14).
     payday_source = (
-        "manual" if config.payday_day is not None else ("detected" if detected_income is not None else None)
+        "manual" if _manual_payday_set(config) else ("detected" if detected_income is not None else None)
     )
     net_income_source = (
         "manual"
