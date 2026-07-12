@@ -280,14 +280,27 @@ export function SafeToSpendDetail() {
   }
 
   const safe = data.safe_to_spend_minor
+  // Same clamp-to-£0 + "over by" treatment as the bubble glance (see its
+  // comment) — spending has actually exceeded the allowance once
+  // spend-so-far is accounted for, so the headline says so plainly rather
+  // than showing the flat allowance as if nothing had been spent yet. The
+  // "Remaining" row in the breakdown below still shows the real signed
+  // figure — this clamp is a headline simplification, not a hidden number.
+  const remaining = data.remaining_minor ?? safe
+  const overBy = remaining < 0 ? -remaining : 0
   return (
     <div className="space-y-5">
       <div>
         <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-ink-soft">
           SAFE TO SPEND · {periodLabel(data.period.start, data.period.end)}
         </p>
-        <p className={`text-[38px] leading-tight ${MONEY_CLASS} ${safe < 0 ? 'text-over' : 'text-ink'}`}>
-          {formatMinor(safe)}
+        <p className="flex items-baseline gap-2">
+          <span className={`text-[38px] leading-tight ${MONEY_CLASS} ${overBy > 0 ? 'text-over' : 'text-ink'}`}>
+            {formatMinor(overBy > 0 ? 0 : safe)}
+          </span>
+          {overBy > 0 && (
+            <span className={`font-mono text-[13px] ${MONEY_CLASS} text-over`}>over by {formatMinor(overBy)}</span>
+          )}
         </p>
         <p className="text-[13px] text-ink-soft">
           {formatMinor(data.per_day_remaining_minor ?? 0)}/day for the next {data.days_left ?? 0} days
